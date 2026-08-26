@@ -1,10 +1,10 @@
 # Roadmap (deferred phases)
 
-This MVP implements Phases 0–3: the local engine, the MCP server, the bounded
-agent, and the frontend. Everything below is **intentionally deferred**. It is
-documented and, where useful, scaffolded with real interfaces that raise
-`NotSupportedError` — **none of it is implemented, and the product does not
-pretend otherwise.**
+This MVP implements Phases 0–3 (the local engine, the MCP server, the bounded
+agent, and the frontend) **plus read-only GitHub repository support** (see
+below). The remaining phases are **intentionally deferred**: documented and,
+where useful, scaffolded with real interfaces that raise `NotSupportedError` —
+**none of those are implemented, and the product does not pretend otherwise.**
 
 Status legend: 🟢 implemented · 🟡 interface/placeholder exists · ⚪ documented only
 
@@ -14,19 +14,41 @@ Status legend: 🟢 implemented · 🟡 interface/placeholder exists · ⚪ docu
 
 | Capability | Status | Where |
 |-----------|--------|-------|
-| `list_files`, `read_file`, `search_code`, `get_file_metadata`, `get_snapshot` | 🟢 | `code_intelligence/local_adapter.py` |
+| `list_files`, `read_file`, `search_code`, `get_file_metadata`, `get_snapshot` — local | 🟢 | `code_intelligence/local_adapter.py` |
+| `list_files`, `read_file`, `search_code`, `get_file_metadata`, `get_snapshot` — GitHub | 🟢 | `code_intelligence/github_adapter.py` |
 | `find_symbol`, `find_references`, `get_dependencies` | 🟡 | `code_intelligence/repository.py` (raise `NotSupportedError`) |
 
-## Phase: GitHub repositories
-⚪ / 🟡 `GitHubRepositoryAdapter` is a documented, non-functional placeholder
-(`code_intelligence/github_adapter.py`). The plan is to back it with an external
-**GitHub MCP** server rather than hand-rolling API calls. Because the agent only
-knows `RepositoryInterface`, this is an additive adapter — no call-site changes.
+## Phase: GitHub repositories — implemented
+🟢 `GitHubRepositoryAdapter` (`code_intelligence/github_adapter.py`) reads a
+public — or token-authorized — GitHub repo over the REST API, **read-only, no
+clone**. At registration it resolves the default branch → commit sha and fetches
+the recursive git tree once; the snapshot is pinned to that commit
+(`snapshot.id = gh:<sha[:12]>`, `revision = <full sha>`). File contents are
+fetched lazily per blob-sha and cached; whole-file reads above the size limit are
+refused *without* downloading. Search reuses the **same lexical matcher** as local
+over tree files fetched under a bounded budget (file-count / size / deadline);
+when coverage is capped it returns `truncated=True` and a `notes` caveat, so the
+agent never implies it searched the whole repository.
 
-## Phase: Unified Local + GitHub layer
-⚪ A composition layer that presents local repos and GitHub repos through the one
-interface, selecting the adapter (and, for GitHub, the MCP client) by repository
-kind. Snapshot ids already accommodate both (`git:` / `wt:`).
+Decision vs. the original sketch: the external **GitHub-MCP proxy was dropped** in
+favor of a scoped, in-process REST client (`code_intelligence/github_client.py`) —
+simpler, fully offline-testable (`httpx.MockTransport`), no extra process. Auth is
+an optional **server-side** `GITHUB_TOKEN` (raises rate limits / enables private
+repos); it is never exposed to the browser, a response, a citation, a log, or an
+error. See [SECURITY.md](SECURITY.md).
+
+## Phase: Unified Local + GitHub layer — implemented
+🟢 The registry (`code_intelligence/registry.py`) is the composition layer:
+`register(source)` **auto-detects** whether `source` is a local path or a GitHub
+URL — by URL *host*, not a substring test (`code_intelligence/github_url.py`) —
+and routes to the matching adapter. Everything above the adapter (file/search
+routers, the agent loop, prompts, tool dispatch, MCP) is source-agnostic and
+needed no change. Local and GitHub repos coexist in one registry with distinct
+ids; snapshot ids accommodate both (`git:` / `wt:` / `gh:`).
+
+**Boundary this pass:** the standalone **MCP server stays local-only** — its tools
+take a filesystem `repo_root`. It already goes through `RepositoryInterface` (the
+local adapter) and does not regress; exposing GitHub repos over MCP is future work.
 
 ## Phase: Hybrid RAG
 🟡 Interfaces exist in `retrieval/base.py`:

@@ -223,6 +223,10 @@ def _do_search(repo: RepositoryInterface, args: dict) -> ToolExecution:
         f"{results.total_matches} match(es) for {query!r} via {results.engine}"
         f"{trunc}; files: {', '.join(touched[:8]) or 'none'}"
     )
+    # Surface any coverage caveat (e.g. a bounded GitHub search) to the model so it
+    # never implies the whole repository was searched when only a subset was.
+    if results.notes:
+        summary = f"{summary} — {results.notes}"
     return ToolExecution(
         name="search_code",
         arguments=args,

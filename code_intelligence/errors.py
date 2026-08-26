@@ -80,10 +80,75 @@ class NotSupportedError(CodeIntelError):
     """A capability that is intentionally deferred to a later phase.
 
     Raised by interface methods that are documented but not yet implemented
-    (e.g. ``find_symbol`` on the local adapter, or anything on the GitHub
-    placeholder).  Using a distinct error keeps "not built yet" clearly
-    separate from "bad request".
+    (e.g. ``find_symbol`` on the local adapter).  Using a distinct error keeps
+    "not built yet" clearly separate from "bad request".
     """
 
     code = "not_supported"
     http_status = 501
+
+
+# ---- GitHub-over-MCP source errors ----------------------------------------
+# These describe failures registering or reading a GitHub repository through the
+# official GitHub MCP server.  Their messages are user-facing and deliberately
+# generic: they never echo the token, an Authorization header, the MCP endpoint
+# URL, or a raw GitHub/MCP response body.
+
+
+class InvalidGitHubUrlError(CodeIntelError):
+    """The supplied string was routed to GitHub but is not a usable repo URL."""
+
+    code = "invalid_github_url"
+    http_status = 400
+
+
+class GitHubMCPConnectionError(CodeIntelError):
+    """Could not establish a session with the GitHub MCP server."""
+
+    code = "github_mcp_connection_failed"
+    http_status = 502
+
+
+class GitHubMCPUnavailableError(CodeIntelError):
+    """The GitHub MCP server is unusable for read-only investigation.
+
+    Raised when the server advertises a write tool while read-only mode was
+    requested, or when the expected read tools are missing — the client fails
+    closed rather than proceeding against a server that could mutate a repo.
+    """
+
+    code = "github_mcp_unavailable"
+    http_status = 502
+
+
+class GitHubMCPAuthError(CodeIntelError):
+    """The GitHub MCP server rejected the request for authentication reasons.
+
+    Typically a missing/invalid ``GITHUB_TOKEN`` or a token lacking the scope the
+    remote server requires (it mandates a token even for public repositories).
+    """
+
+    code = "github_mcp_authentication_failed"
+    http_status = 401
+
+
+class GitHubMCPToolError(CodeIntelError):
+    """A GitHub MCP tool call returned an error result or a malformed payload."""
+
+    code = "github_mcp_tool_error"
+    http_status = 502
+
+
+class GitHubRepoNotFoundError(CodeIntelError):
+    """The GitHub repository, path, or ref does not exist (or is not visible to
+    the configured token)."""
+
+    code = "github_repository_not_found"
+    http_status = 404
+
+
+class GitHubRepoAccessDeniedError(CodeIntelError):
+    """The configured token is not permitted to access the GitHub repository."""
+
+    code = "github_repository_access_denied"
+    http_status = 403

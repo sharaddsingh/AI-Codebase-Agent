@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .content import slice_text_content
 from .errors import (
     BinaryFileError,
     NotADirError,
@@ -139,48 +140,17 @@ def read_text_file(
 
     file_truncated = len(raw) > limits.max_readable_file_bytes
     raw = raw[: limits.max_readable_file_bytes]
-    text = raw.decode("utf-8", errors="replace")
-    lines = text.split("\n")
-    # A trailing newline yields a spurious empty final element; drop it.
-    if lines and lines[-1] == "":
-        lines.pop()
-    total_lines = len(lines)
-
-    s = max(1, start_line or 1)
-    e = end_line or total_lines
-    e = max(s, min(e, total_lines)) if total_lines else s
-
-    ceiling = limits.max_read_bytes
-    budget = min(max_bytes or ceiling, ceiling)
-
-    out: list[str] = []
-    used = 0
-    last_line = s - 1
-    truncated_by_bytes = False
-    for i in range(s, e + 1):
-        if i - 1 >= total_lines:
-            break
-        piece = lines[i - 1]
-        cost = len(piece.encode("utf-8")) + 1
-        if out and used + cost > budget:
-            truncated_by_bytes = True
-            break
-        out.append(piece)
-        used += cost
-        last_line = i
-
-    content = "\n".join(out)
-    truncated = truncated_by_bytes or file_truncated or last_line < e
-    return FileContent(
-        repo_id=repo_id,
-        path=to_relative_posix(root, abs_path),
-        start_line=s if total_lines else 0,
-        end_line=last_line,
-        total_lines=total_lines,
-        content=content,
-        truncated=truncated,
-        encoding="utf-8",
-        bytes_returned=len(content.encode("utf-8")),
+    # Slicing/decoding/budgeting is shared with the GitHub adapter via content.py
+    # so a read means exactly the same thing regardless of the byte source.
+    return slice_text_content(
+        repo_id,
+        to_relative_posix(root, abs_path),
+        raw,
+        file_truncated=file_truncated,
+        start_line=start_line,
+        end_line=end_line,
+        max_bytes=max_bytes,
+        limits=limits,
     )
 
 

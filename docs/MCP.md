@@ -86,6 +86,8 @@ enforced.
 ## Relationship to the backend
 The FastAPI backend does **not** proxy through this MCP server today — both call
 the same engine directly. The MCP server is a first-class, independently usable
-protocol surface. The future unified Local+GitHub layer (see
-[ROADMAP.md](ROADMAP.md)) is where an external **GitHub MCP** server would be
-composed in behind the same `RepositoryInterface`.
+protocol surface. It is **local-only** this pass: its tools take a filesystem
+`repo_root`. The Local + GitHub unification already lives in the registry on the
+API side; exposing GitHub repos over MCP — or composing an external **GitHub MCP**
+server behind the same `RepositoryInterface` — remains future work (see
+[ROADMAP.md](ROADMAP.md)).

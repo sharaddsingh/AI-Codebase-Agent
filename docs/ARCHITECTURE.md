@@ -22,8 +22,8 @@ branching.
                                  │  implemented by
                  ┌───────────────┴───────────────────────────┐
                  ▼                                             ▼
-   LocalRepositoryAdapter  (functional)        GitHubRepositoryAdapter  (placeholder,
-   code_intelligence/local_adapter.py          raises NotSupportedError — see ROADMAP)
+   LocalRepositoryAdapter  (functional)        GitHubRepositoryAdapter  (functional,
+   code_intelligence/local_adapter.py          read-only REST — code_intelligence/github_adapter.py)
 ```
 
 **Implemented capabilities** (abstract; every adapter must provide them):
@@ -33,7 +33,9 @@ branching.
 surface exists without pretending it works): `find_symbol`, `find_references`,
 `get_dependencies`. These define the target for the code-graph phase.
 
-Adding GitHub support later means writing one adapter — no call site changes.
+GitHub support was added exactly this way — one adapter
+(`code_intelligence/github_adapter.py`) plus source detection at the registry
+boundary, and **no call-site changes** above it (routers, agent loop, MCP).
 
 ---
 

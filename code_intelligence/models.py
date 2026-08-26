@@ -112,7 +112,15 @@ class SearchResults(BaseModel):
     matches: list[SearchMatch]
     total_matches: int
     truncated: bool
-    engine: str = Field(description="'ripgrep' or 'python-fallback'.")
+    engine: str = Field(description="'ripgrep', 'python-fallback', or 'github-mcp'.")
+    notes: str | None = Field(
+        default=None,
+        description=(
+            "Human-readable coverage caveat when the search did not scan the whole "
+            "repository (e.g. GitHub bounded a subset of files). Absent when the "
+            "search was exhaustive."
+        ),
+    )
 
 
 class Citation(BaseModel):

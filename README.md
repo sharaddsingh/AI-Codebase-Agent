@@ -2,12 +2,13 @@
 
 A web-based, **read-only** AI agent that investigates a software repository using
 tools and answers questions with **file/line citations**. It plans, calls
-read-only tools against a local codebase, observes the results, and either keeps
-digging or answers — all under strict budgets, and never sending a whole
-codebase to a model.
+read-only tools against a **local path or a public GitHub repository**, observes
+the results, and either keeps digging or answers — all under strict budgets, and
+never sending a whole codebase to a model.
 
-This is a working **local-repository MVP (Phases 0–3)** with clean, documented
-interfaces for later phases. It does **not** pretend future capabilities exist.
+This is a working **MVP (Phases 0–3) with read-only GitHub support** and clean,
+documented interfaces for later phases. It does **not** pretend future
+capabilities exist.
 
 ### The four responsibilities it demonstrates
 1. **AI coding agent** — a bounded plan→act→observe→answer loop with cited answers.
@@ -28,7 +29,7 @@ agent/              Model adapter, classifier, tools, bounded loop, budgets
 backend/            FastAPI app (health, repositories, files, search, agent SSE)
 mcp/                Standalone MCP server (official SDK)
 frontend/           Next.js 14 UI (tree, code viewer, chat, activity, citations)
-tests/              pytest suite (97 tests) + fixture repository
+tests/               pytest suite (166 tests) + fixture repository
 docs/               ARCHITECTURE · SECURITY · MCP · ROADMAP
 docker/             Dockerfiles + compose (scaffolding — see Limitations)
 ```
@@ -85,9 +86,11 @@ python mcp/server.py
 ```
 
 Then open **http://localhost:3000**, register a repository by its absolute path
-(try the bundled `tests/fixtures/sample_repo`), browse the tree, and ask the chat
-a question like *"How does authentication work?"* — answers arrive with clickable
-citations and a live activity timeline.
+(try the bundled `tests/fixtures/sample_repo`) **or by a GitHub URL** (e.g.
+`https://github.com/owner/repo`), browse the tree, and ask the chat a question
+like *"How does authentication work?"* — answers arrive with clickable citations
+and a live activity timeline. The source (LOCAL / GITHUB) is auto-detected and
+shown per repository.
 
 > No API key? Set `MODEL_PROVIDER=mock` in `.env` to exercise the full UI and API
 > with a deterministic scripted agent.
@@ -98,7 +101,7 @@ citations and a live activity timeline.
 
 **Python** (from repo root, venv active):
 ```bash
-python -m pytest                                            # 95 passed, 2 skipped*
+python -m pytest                                            # 164 passed, 2 skipped*
 python -m ruff check .                                      # lint
 python -m mypy code_intelligence retrieval agent backend    # types
 ```
@@ -130,7 +133,9 @@ All server-side; only `NEXT_PUBLIC_API_BASE_URL` reaches the browser. See
 | `AGENT_MAX_FILES` | `20` | Budget: files read |
 | `AGENT_MAX_CONTEXT_BYTES` | `200000` | Budget: tool-output bytes fed to model |
 | `AGENT_MAX_STEPS` | `16` | Budget: loop iterations |
-| `ALLOWED_REPO_ROOTS` | *(empty)* | Path-separated allow-list; empty = unrestricted (dev) |
+| `ALLOWED_REPO_ROOTS` | *(empty)* | Path-separated allow-list (local only); empty = unrestricted (dev) |
+| `GITHUB_TOKEN` | *(empty)* | **Secret, optional.** Server-side PAT: raises GitHub rate limits / enables private repos. Never sent to the browser |
+| `GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub REST base URL (override for GitHub Enterprise) |
 | `RESPECT_GITIGNORE` | `true` | Honor the repo's root `.gitignore` |
 | `DEFAULT_REPO_PATH` | *(empty)* | Optional repo auto-registered at startup |
 | `LOG_LEVEL` | `INFO` | Log level |
@@ -152,12 +157,12 @@ logs**. Full details and enforcement points: [docs/SECURITY.md](docs/SECURITY.md
 
 ## What's intentionally deferred
 
-GitHub repositories (documented placeholder adapter), a unified Local+GitHub
-layer, Hybrid RAG (embeddings + reranking), Tree-sitter AST/code-graph
+Hybrid RAG (embeddings + reranking), Tree-sitter AST/code-graph
 (`find_symbol`/`find_references`/`get_dependencies`), controlled code changes,
-and infrastructure (PostgreSQL, Redis, Qdrant, OpenTelemetry, eval harness, cloud
-deploy). Each has a real interface or is clearly marked not-implemented — see
-[docs/ROADMAP.md](docs/ROADMAP.md).
+GitHub-over-MCP (the standalone MCP server is local-only today; local + GitHub are
+already unified in the registry), and infrastructure (PostgreSQL, Redis, Qdrant,
+OpenTelemetry, eval harness, cloud deploy). Each has a real interface or is
+clearly marked not-implemented — see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Limitations / known blockers
 - **Docker files are untested here.** Docker is not installed in the development

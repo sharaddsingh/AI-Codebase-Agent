@@ -85,6 +85,50 @@ def test_budget_forces_answer(repo) -> None:
     assert result.tool_calls == 1
 
 
+def test_forced_answer_recovers_from_empty_completion(repo) -> None:
+    # Real-model failure mode: after the budget trips, the first forced call (the
+    # full transcript with tools disabled) comes back empty — the model is primed
+    # to keep calling tools and, with none available, emits no text. The loop must
+    # retry on a clean context and still turn the evidence it read into an answer,
+    # not the generic "could not produce an answer" dead end.
+    adapter = MockAdapter(
+        [
+            tool_call("read_file", {"path": "app/security.py", "start_line": 1, "end_line": 10}),
+            final_answer(""),  # forced attempt 1: empty completion
+            final_answer(
+                "verify_token raises the 401 (app/security.py:1-10).\n\n"
+                "Sources: app/security.py:1-10"
+            ),
+        ]
+    )
+    loop = AgentLoop(adapter, budget=Budget(max_tool_calls=1, max_steps=8))
+    result = loop.run_sync(repo, "Where does the 401 come from?")
+
+    assert result.budget_exhausted is True
+    assert result.stop_reason == "budget_exhausted"
+    assert "could not produce an answer" not in result.answer
+    assert "app/security.py" in result.answer
+    assert any(c.path == "app/security.py" for c in result.citations)
+
+
+def test_forced_answer_falls_back_to_evidence_summary(repo) -> None:
+    # If even the clean-context retry yields nothing, the loop still avoids a dead
+    # end: it names the files it actually inspected instead of the generic message.
+    adapter = MockAdapter(
+        [
+            tool_call("read_file", {"path": "app/security.py", "start_line": 1, "end_line": 10}),
+            final_answer(""),  # forced attempt 1: empty
+            final_answer("   "),  # forced attempt 2 (clean context): whitespace only
+        ]
+    )
+    loop = AgentLoop(adapter, budget=Budget(max_tool_calls=1, max_steps=8))
+    result = loop.run_sync(repo, "Where does the 401 come from?")
+
+    assert result.budget_exhausted is True
+    assert "app/security.py" in result.answer
+    assert "inspect" in result.answer.lower()
+
+
 def test_file_read_budget_refuses_extra_reads(repo) -> None:
     adapter = MockAdapter(
         [

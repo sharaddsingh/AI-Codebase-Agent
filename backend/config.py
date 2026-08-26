@@ -28,11 +28,14 @@ class Settings(BaseSettings):
     agent_temperature: float = 0.0
 
     # -- agent budgets ----------------------------------------------------
-    agent_max_tool_calls: int = 12
-    agent_max_seconds: float = 90.0
+    # Defaults mirror agent.budget.Budget and are sized for real repositories;
+    # override per-deployment via AGENT_MAX_* env vars. Tool calls are the
+    # intended binding limit (steps kept above it).
+    agent_max_tool_calls: int = 20
+    agent_max_seconds: float = 150.0
     agent_max_files: int = 20
-    agent_max_context_bytes: int = 200_000
-    agent_max_steps: int = 16
+    agent_max_context_bytes: int = 300_000
+    agent_max_steps: int = 24
 
     # -- repository access ------------------------------------------------
     # os.pathsep-separated allow-list. Empty => unrestricted (dev convenience);
@@ -41,6 +44,17 @@ class Settings(BaseSettings):
     respect_gitignore: bool = True
     # Optional path auto-registered at startup (handy for demos, e.g. the fixture).
     default_repo_path: str = ""
+
+    # -- GitHub access via the official GitHub MCP server (read-only) -----
+    # GitHub repositories are investigated through the official GitHub MCP
+    # server over remote Streamable HTTP, authenticated by a server-side PAT.
+    # A token is REQUIRED for GitHub repos (the remote server mandates one even
+    # for public repositories). It is read only here and is never sent to the
+    # frontend, a response, a citation, a log, or an error message.
+    github_token: str | None = None
+    github_mcp_url: str = "https://api.githubcopilot.com/mcp/readonly"
+    github_mcp_toolsets: str = "repos,git"
+    github_mcp_timeout: float = 30.0
 
     # -- server -----------------------------------------------------------
     log_level: str = "INFO"

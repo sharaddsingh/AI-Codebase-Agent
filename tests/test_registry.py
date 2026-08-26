@@ -5,9 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from github_mock import mock_client
 
 from code_intelligence.errors import RegistrationError, RepositoryNotFoundError
+from code_intelligence.models import RepositoryKind
 from code_intelligence.registry import RepositoryRegistry
+
+GH_URL = "https://github.com/octocat/hello"
 
 
 def test_register_and_lookup(registry: RepositoryRegistry, sample_repo_path: Path) -> None:
@@ -60,3 +64,37 @@ def test_allowed_roots_permit_within(tmp_path: Path) -> None:
     reg = RepositoryRegistry(allowed_roots=[tmp_path])
     info = reg.register_local(str(sub))
     assert info.id.startswith("repo_")
+
+
+# ---- GitHub registration (mocked network) ----------------------------------
+def test_register_github_via_unified_entry() -> None:
+    reg = RepositoryRegistry(github_client=mock_client())
+    info = reg.register(GH_URL)  # auto-detected as GitHub, not a local path
+    assert info.kind is RepositoryKind.github
+    assert info.root == "https://github.com/octocat/hello"
+    assert info.snapshot.id.startswith("gh:")
+    assert reg.get(info.id).kind is RepositoryKind.github
+
+
+def test_local_and_github_coexist(sample_repo_path: Path) -> None:
+    reg = RepositoryRegistry(github_client=mock_client())
+    local = reg.register(str(sample_repo_path))
+    gh = reg.register(GH_URL)
+    assert local.kind is RepositoryKind.local
+    assert gh.kind is RepositoryKind.github
+    assert local.id != gh.id
+    kinds = {i.id: i.kind for i in reg.list()}
+    assert kinds == {local.id: RepositoryKind.local, gh.id: RepositoryKind.github}
+
+
+def test_github_registration_is_idempotent() -> None:
+    reg = RepositoryRegistry(github_client=mock_client())
+    a = reg.register(GH_URL)
+    b = reg.register(GH_URL)
+    assert a.id == b.id
+    assert len(reg.list()) == 1  # not duplicated
+
+
+def test_register_empty_source_rejected() -> None:
+    with pytest.raises(RegistrationError):
+        RepositoryRegistry().register("   ")

@@ -24,8 +24,26 @@ def get_registry() -> RepositoryRegistry:
         _registry = RepositoryRegistry(
             allowed_roots=s.allowed_roots_list(),
             respect_gitignore=s.respect_gitignore,
+            github_token=s.github_token,
+            github_mcp_url=s.github_mcp_url,
+            github_mcp_toolsets=s.github_mcp_toolsets,
+            github_mcp_timeout=s.github_mcp_timeout,
         )
     return _registry
+
+
+def set_registry(registry: RepositoryRegistry | None) -> None:
+    """Override the repository registry (used by tests to inject a registry whose
+    GitHub MCP client is backed by an in-process fake MCP server). Pass None to
+    clear. Any previously-installed registry has its GitHub MCP session closed so
+    its loop thread does not leak."""
+    global _registry
+    if _registry is not None and _registry is not registry:
+        try:
+            _registry.close_github_mcp()
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            pass
+    _registry = registry
 
 
 def get_repo_or_404(repo_id: str) -> RepositoryInterface:
@@ -66,5 +84,10 @@ def get_agent_loop() -> AgentLoop:
 def reset_state() -> None:
     """Reset singletons (used by tests)."""
     global _registry, _model_adapter_override
+    if _registry is not None:
+        try:
+            _registry.close_github_mcp()
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            pass
     _registry = None
     _model_adapter_override = None

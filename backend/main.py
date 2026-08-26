@@ -46,21 +46,28 @@ async def lifespan(app: FastAPI):
         }},
     )
 
-    # Optional convenience: auto-register a repo for demos.
+    # Optional convenience: auto-register a repo for demos (local path or GitHub URL).
     if settings.default_repo_path:
         try:
-            info = get_registry().register_local(settings.default_repo_path)
+            info = get_registry().register(settings.default_repo_path)
             log.info("auto-registered default repo", extra={"extra": {"repo_id": info.id}})
         except CodeIntelError as exc:
             log.warning("could not auto-register default repo: %s", exc.message)
 
     yield
 
+    # Shutdown: close the shared GitHub MCP session (if one was opened) so the
+    # loop thread and remote session do not leak across a backend restart.
+    try:
+        get_registry().close_github_mcp()
+    except Exception:  # noqa: BLE001 - best-effort cleanup on shutdown
+        log.warning("error closing GitHub MCP session on shutdown", exc_info=True)
+
 
 app = FastAPI(
     title="AI Codebase Engineering Agent",
     version="0.1.0",
-    description="Read-only, tool-using agent that investigates local repositories.",
+    description="Read-only, tool-using agent that investigates local and GitHub repositories.",
     lifespan=lifespan,
 )
 

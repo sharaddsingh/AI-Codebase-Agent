@@ -2,9 +2,10 @@
 
 The agent, MCP server, and API never contain local-vs-GitHub branching: they
 hold a :class:`RepositoryInterface` and call the same methods regardless of
-where the code physically lives.  Today only :class:`LocalRepositoryAdapter`
-is functional; :class:`~code_intelligence.github_adapter.GitHubRepositoryAdapter`
-is a documented placeholder for a later phase.
+where the code physically lives.  :class:`LocalRepositoryAdapter` serves a local
+filesystem path; :class:`~code_intelligence.github_mcp_repository.GitHubMCPRepository`
+serves a GitHub repository through the official GitHub MCP server (remote,
+read-only).  Both are fully functional and can coexist in one session.
 
 The four *implemented* capabilities are abstract (every adapter must provide
 them).  The three *deferred* capabilities (``find_symbol``, ``find_references``,

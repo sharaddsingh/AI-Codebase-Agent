@@ -1,12 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { FolderGit2, Plus, ShieldAlert } from "lucide-react";
-import type { HealthResponse, RepositoryInfo } from "@/lib/types";
+import { FolderGit2, Github, Plus, ShieldAlert } from "lucide-react";
+import type { HealthResponse, RepositoryInfo, RepositoryKind } from "@/lib/types";
 import { ApiError } from "@/lib/api";
 import { Badge, ErrorBanner, SectionLabel, Spinner } from "./ui";
 
 const SAMPLE_PATH = "tests/fixtures/sample_repo";
+// A tiny, canonical public repo for demoing GitHub registration.
+const SAMPLE_GITHUB_URL = "https://github.com/octocat/Hello-World";
+
+function KindBadge({ kind }: { kind: RepositoryKind }) {
+  return kind === "github" ? (
+    <Badge tone="blue" title="Read over the GitHub API (read-only)">
+      GitHub
+    </Badge>
+  ) : (
+    <Badge tone="neutral" title="Read from the local filesystem">
+      Local
+    </Badge>
+  );
+}
 
 interface RepoSelectorProps {
   repos: RepositoryInfo[];
@@ -58,7 +72,7 @@ export function RepoSelector({
             type="text"
             value={path}
             onChange={(e) => setPath(e.target.value)}
-            placeholder="Absolute or server-relative path"
+            placeholder="Local path or GitHub URL (https://github.com/owner/repo)"
             spellCheck={false}
             disabled={busy}
             className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-sky-600 focus:outline-none disabled:opacity-60"
@@ -73,16 +87,28 @@ export function RepoSelector({
           </button>
         </div>
         {repos.length === 0 ? (
-          <p className="text-[11px] text-zinc-500">
-            {"No repositories yet. Try the bundled sample: "}
-            <button
-              type="button"
-              onClick={() => setPath(SAMPLE_PATH)}
-              className="font-mono text-sky-400 underline decoration-dotted hover:text-sky-300"
-            >
-              {SAMPLE_PATH}
-            </button>
-          </p>
+          <div className="flex flex-col gap-1 text-[11px] text-zinc-500">
+            <p>
+              {"No repositories yet. Try the bundled local sample: "}
+              <button
+                type="button"
+                onClick={() => setPath(SAMPLE_PATH)}
+                className="font-mono text-sky-400 underline decoration-dotted hover:text-sky-300"
+              >
+                {SAMPLE_PATH}
+              </button>
+            </p>
+            <p>
+              {"…or a public GitHub repo: "}
+              <button
+                type="button"
+                onClick={() => setPath(SAMPLE_GITHUB_URL)}
+                className="font-mono text-sky-400 underline decoration-dotted hover:text-sky-300"
+              >
+                {SAMPLE_GITHUB_URL}
+              </button>
+            </p>
+          </div>
         ) : null}
         {error ? <ErrorBanner title="Registration failed" message={error} onDismiss={() => setError(null)} /> : null}
       </form>
@@ -93,6 +119,7 @@ export function RepoSelector({
           <div className="flex flex-col gap-1">
             {repos.map((repo) => {
               const isActive = repo.id === activeRepoId;
+              const Icon = repo.kind === "github" ? Github : FolderGit2;
               return (
                 <button
                   key={repo.id}
@@ -104,8 +131,17 @@ export function RepoSelector({
                       : "border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900"
                   }`}
                 >
-                  <FolderGit2 className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" aria-hidden />
+                  <Icon className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" aria-hidden />
                   <span className="min-w-0 flex-1 truncate font-medium">{repo.name}</span>
+                  <span
+                    className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                      repo.kind === "github"
+                        ? "bg-sky-950 text-sky-300"
+                        : "bg-zinc-800 text-zinc-400"
+                    }`}
+                  >
+                    {repo.kind}
+                  </span>
                   {repo.file_count_hint != null ? (
                     <span className="flex-shrink-0 text-[10px] text-zinc-500">
                       {repo.file_count_hint} files
@@ -124,12 +160,26 @@ export function RepoSelector({
 }
 
 function ActiveRepoDetails({ repo }: { repo: RepositoryInfo }) {
+  const isGithub = repo.kind === "github";
   return (
     <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2.5 text-xs">
-      <div className="mb-1 truncate font-mono text-[11px] text-zinc-400" title={repo.root}>
-        {repo.root}
-      </div>
+      {isGithub ? (
+        <a
+          href={repo.root}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="mb-1 block truncate font-mono text-[11px] text-sky-400 underline decoration-dotted hover:text-sky-300"
+          title={repo.root}
+        >
+          {repo.root}
+        </a>
+      ) : (
+        <div className="mb-1 truncate font-mono text-[11px] text-zinc-400" title={repo.root}>
+          {repo.root}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
+        <KindBadge kind={repo.kind} />
         <Badge tone="violet" title="Snapshot id">
           {repo.snapshot.id}
         </Badge>

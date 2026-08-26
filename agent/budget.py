@@ -15,11 +15,16 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Budget:
-    max_tool_calls: int = 12
-    max_seconds: float = 90.0
+    # Sized for real repositories (dozens–hundreds of files): locating and
+    # reading the answer-bearing files typically costs 10–18 tool calls, so a
+    # tighter cap forces the agent to stop before it can answer. Tool calls are
+    # the intended binding limit; steps are kept comfortably above it so a model
+    # that issues one tool per round-trip is not throttled by the step cap first.
+    max_tool_calls: int = 20
+    max_seconds: float = 150.0
     max_files_read: int = 20
-    max_context_bytes: int = 200_000
-    max_steps: int = 16  # model round-trips (each may issue multiple tool calls)
+    max_context_bytes: int = 300_000
+    max_steps: int = 24  # model round-trips (each may issue multiple tool calls)
 
 
 @dataclass

@@ -5,13 +5,17 @@ pydantic>=2.7,<3.0
 pydantic-settings>=2.3
 python-dotenv>=1.0
 sse-starlette>=2.1
+# httpx is required by the anthropic SDK; httpx2 is used directly to attach auth
+# headers to the GitHub MCP Streamable-HTTP transport (it takes no headers kwarg).
 httpx>=0.27
+httpx2>=2.5
 
 # Model provider SDK (Claude/Anthropic; the adapter is provider-agnostic)
 anthropic>=0.39,<2.0
 
-# Official Model Context Protocol SDK (do NOT hand-roll the protocol)
-mcp>=1.2
+# Official Model Context Protocol SDK (do NOT hand-roll the protocol).
+# Used both as a server (mcp/server.py) and as a client (GitHub MCP).
+mcp>=2.1,<3
 
 # Ignore-rule matching (.gitignore-style patterns)
 pathspec>=0.12

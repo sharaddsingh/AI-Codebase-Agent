@@ -77,6 +77,9 @@ export interface SearchResults {
   total_matches: number;
   truncated: boolean;
   engine: string;
+  // Coverage caveat when the search did not scan the whole repository (e.g. a
+  // bounded GitHub search). Absent/null when the search was exhaustive.
+  notes?: string | null;
 }
 
 export interface Citation {

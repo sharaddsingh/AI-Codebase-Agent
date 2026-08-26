@@ -14,9 +14,10 @@ router = APIRouter(prefix="/repositories", tags=["repositories"])
 
 @router.post("", response_model=RepositoryInfo, status_code=201)
 def register_repository(body: RegisterRepoRequest) -> RepositoryInfo:
-    """Register a local repository by explicit path. Idempotent: registering the
-    same real path returns the same repository id."""
-    return get_registry().register_local(body.path, name=body.name)
+    """Register a repository by local path **or** GitHub URL. The source is
+    auto-detected and routed to the matching adapter. Idempotent: the same local
+    path — or the same GitHub ``owner/repo`` — returns the same repository id."""
+    return get_registry().register(body.path, name=body.name)
 
 
 @router.get("", response_model=list[RepositoryInfo])

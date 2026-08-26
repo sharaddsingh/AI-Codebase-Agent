@@ -11,7 +11,13 @@ from pydantic import BaseModel, Field
 
 
 class RegisterRepoRequest(BaseModel):
-    path: str = Field(..., description="Filesystem path to the local repository root.")
+    path: str = Field(
+        ...,
+        description=(
+            "Local filesystem path to a repository root, or a GitHub repository "
+            "URL (e.g. https://github.com/owner/repo). The source is auto-detected."
+        ),
+    )
     name: str | None = Field(None, description="Optional display name.")
 
 

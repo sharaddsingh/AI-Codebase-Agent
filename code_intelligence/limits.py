@@ -28,6 +28,10 @@ class EngineLimits:
     max_line_length: int = 2000  # truncate individual lines in previews
     binary_sniff_bytes: int = 8192
     walk_file_cap: int = 20000  # hard cap on files visited during a fallback walk
+    # GitHub search: cap how many blobs a single search fetches over the network,
+    # so an unauthenticated call cannot exhaust the API rate limit. Coverage
+    # beyond this is reported as truncated with a note (never silently dropped).
+    github_search_max_files: int = 300
 
 
 DEFAULT_LIMITS = EngineLimits()

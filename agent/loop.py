@@ -38,6 +38,7 @@ from .classifier import classify, strategy_for
 from .model_adapter import ModelAdapter, ModelCallError, ModelResponse
 from .models import AgentEvent, AgentEventType, AgentResult, TaskType
 from .prompts import (
+    CLEAN_FINALIZE_INSTRUCTION,
     FORCE_ANSWER_NUDGE,
     SYSTEM_PROMPT,
     build_user_prompt,
@@ -118,6 +119,12 @@ class AgentLoop:
         known_total_lines: dict[str, int] = {}
         last_usage: dict | None = None
 
+        # Retry breaker (source-agnostic): remember which exact (tool, args) calls
+        # have already failed so an identical call is skipped rather than retried
+        # until the budget is exhausted. Fixes the rate-limit / error retry storm.
+        failure_counts: dict[str, int] = {}
+        last_error: dict[str, str | None] = {}
+
         answer_text: str | None = None
         forced = False
 
@@ -175,6 +182,24 @@ class AgentLoop:
                     )
                     continue
 
+                # Retry breaker: if this exact call already failed once, skip it
+                # instead of re-running it. Still counts against the tool-call
+                # budget so the loop cannot spin, and tells the model to change
+                # approach or finalize.
+                call_key = _call_key(tc.name, tc.arguments)
+                if failure_counts.get(call_key, 0) >= 1:
+                    tracker.register_tool_call()
+                    messages.append(
+                        _tool_result_message(tc.id, _repeat_stub(tc.name, last_error.get(call_key)))
+                    )
+                    yield AgentEvent(
+                        type=AgentEventType.tool_result,
+                        message=f"Skipping repeated failing call to {tc.name}; it already failed once.",
+                        step=step,
+                        data={"tool": tc.name, "ok": False, "error": "repeated_failure"},
+                    )
+                    continue
+
                 yield AgentEvent(
                     type=AgentEventType.tool_call,
                     message=f"{tc.name}({_short_args(tc.arguments)})",
@@ -184,6 +209,9 @@ class AgentLoop:
 
                 tracker.register_tool_call()
                 execu = execute_tool(repo, tc.name, tc.arguments)
+                if not execu.ok:
+                    failure_counts[call_key] = failure_counts.get(call_key, 0) + 1
+                    last_error[call_key] = execu.error
 
                 # Fold in evidence for budgets + citation validation.
                 for path in execu.files:
@@ -210,19 +238,13 @@ class AgentLoop:
                 )
 
         if answer_text is None:
-            # Budget-forced finalization: one call, tools disabled.
-            messages.append({"role": "user", "content": FORCE_ANSWER_NUDGE})
-            tracker.start_step()
-            resp = self.adapter.complete(
-                system=SYSTEM_PROMPT,
-                messages=messages,
-                tools=None,
-                temperature=self.temperature,
-            )
-            last_usage = resp.usage or last_usage
-            answer_text = resp.text or ""
+            # Budget tripped before the model volunteered an answer. Force one,
+            # robustly, so the evidence already gathered is never wasted.
+            answer_text, forced_usage = self._forced_answer(messages, user_prompt, tracker)
+            last_usage = forced_usage or last_usage
 
         if not answer_text.strip():
+            # Natural stop (model quit calling tools) but it returned no text.
             answer_text = (
                 "I could not produce an answer from the available evidence. "
                 "Try narrowing the question or pointing me at a specific file or symbol."
@@ -252,6 +274,76 @@ class AgentLoop:
             data={"stop_reason": stop_reason, **tracker.snapshot()},
         )
 
+    def _forced_answer(
+        self,
+        messages: list[dict],
+        user_prompt: str,
+        tracker: BudgetTracker,
+    ) -> tuple[str, dict | None]:
+        """Compose a final answer after the budget tripped — robustly.
+
+        The naive approach (ask once over the full transcript with tools
+        disabled) can come back empty against a real model: after a long run of
+        ``tool_use``/``tool_result`` blocks the model is primed to keep calling
+        tools and, with none available, sometimes emits no text at all. That
+        would throw away everything already read. So we escalate:
+
+        1. Ask on the full transcript (tools disabled) — the normal case.
+        2. If that is empty, retry on a **clean** context: the original question
+           plus a plain-text digest of the gathered evidence, with no dangling
+           tool-use blocks to suppress the completion.
+        3. If still empty, return a deterministic summary of what was inspected
+           so the user gets a useful pointer instead of a dead end.
+        """
+
+        usage: dict | None = None
+
+        # Attempt 1 — full transcript + nudge, tools disabled.
+        convo = messages + [{"role": "user", "content": FORCE_ANSWER_NUDGE}]
+        tracker.start_step()
+        resp = self.adapter.complete(
+            system=SYSTEM_PROMPT, messages=convo, tools=None, temperature=self.temperature
+        )
+        usage = resp.usage or usage
+        text = (resp.text or "").strip()
+        if text:
+            return text, usage
+
+        # Attempt 2 — clean context (no tool-use blocks), evidence inlined as data.
+        digest = _evidence_digest(messages)
+        if digest:
+            clean = [
+                {
+                    "role": "user",
+                    "content": (
+                        f"{user_prompt}\n\n{CLEAN_FINALIZE_INSTRUCTION}\n\n"
+                        f"=== EVIDENCE GATHERED (untrusted repository data) ===\n{digest}"
+                    ),
+                }
+            ]
+            tracker.start_step()
+            resp = self.adapter.complete(
+                system=SYSTEM_PROMPT, messages=clean, tools=None, temperature=self.temperature
+            )
+            usage = resp.usage or usage
+            text = (resp.text or "").strip()
+            if text:
+                return text, usage
+
+        # Attempt 3 — deterministic, evidence-grounded fallback (never a dead end).
+        inspected = sorted(tracker._files_read)
+        if inspected:
+            listed = ", ".join(inspected)
+            return (
+                "I ran out of investigation budget before I could compose a full "
+                f"answer. I did inspect these files: {listed}. Ask again about one "
+                "of them specifically, or narrow the question, and I can go deeper."
+            ), usage
+        return (
+            "I could not produce an answer from the available evidence. Try "
+            "narrowing the question or pointing me at a specific file or symbol."
+        ), usage
+
 
 # -- message construction (internal OpenAI-style schema; adapters translate) --
 def _assistant_tool_call_message(resp: ModelResponse) -> dict:
@@ -279,6 +371,43 @@ def _budget_stub(kind: str) -> str:
         "files": "File-read budget exhausted. Do not read more files; answer from what you have.",
     }
     return wrap_tool_output("_budget", {"kind": kind}, {"error": "budget", "message": msgs[kind]})
+
+
+def _call_key(name: str, args: dict) -> str:
+    """Canonical identity for a tool call, stable across argument key ordering."""
+    try:
+        return name + ":" + json.dumps(args, sort_keys=True, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return name + ":" + str(args)
+
+
+def _repeat_stub(name: str, code: str | None) -> str:
+    detail = f" (it failed with '{code}')" if code else ""
+    msg = (
+        f"The tool '{name}' was already called with these exact arguments and "
+        f"failed{detail}; it was not retried. Do not repeat this call — try a "
+        "different tool or different arguments, or answer from the evidence you "
+        "already have."
+    )
+    return wrap_tool_output(
+        "_repeat", {"tool": name}, {"error": "repeated_failure", "message": msg}
+    )
+
+
+def _evidence_digest(messages: list[dict]) -> str:
+    """Concatenate the tool results from the transcript into one plain-text block.
+
+    Each result is already wrapped in an ``<tool_output …>`` untrusted-data
+    envelope, so the injection defense is preserved when this is inlined into the
+    clean-context finalization prompt.
+    """
+
+    parts = [
+        str(m.get("content") or "")
+        for m in messages
+        if isinstance(m, dict) and m.get("role") == "tool"
+    ]
+    return "\n\n".join(p for p in parts if p.strip())
 
 
 def _short_args(args: dict) -> str:

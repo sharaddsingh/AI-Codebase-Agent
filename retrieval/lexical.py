@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import time
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from code_intelligence.engine import walk_files
@@ -147,9 +148,8 @@ def _search_ripgrep(
     )
 
 
-def _search_python(
-    root: Path,
-    ignore: IgnoreRules,
+def search_documents(
+    documents: Iterable[tuple[str, bytes]],
     query: str,
     *,
     regex: bool,
@@ -157,8 +157,16 @@ def _search_python(
     path_glob: str | None,
     max_results: int,
     limits: EngineLimits,
-    repo_id: str,
-) -> SearchResults:
+    deadline: float | None = None,
+) -> tuple[list[SearchMatch], bool]:
+    """Match ``query`` against ``(rel_path, raw_bytes)`` documents.
+
+    This is the source-agnostic core of the pure-Python search: the local adapter
+    feeds it files read from disk, the GitHub adapter feeds it blobs fetched lazily
+    over the API — the matching, per-file cap, global cap, line truncation, and
+    deadline handling are identical for both. Returns ``(matches, truncated)``.
+    """
+
     from fnmatch import fnmatch
 
     flags = 0 if case_sensitive else re.IGNORECASE
@@ -169,26 +177,12 @@ def _search_python(
 
     matches: list[SearchMatch] = []
     truncated = False
-    deadline = time.monotonic() + limits.search_timeout_s
 
-    for rel, abs_path in walk_files(root, ignore, limits=limits):
-        if time.monotonic() > deadline:
+    for rel, raw in documents:
+        if deadline is not None and time.monotonic() > deadline:
             truncated = True
             break
         if path_glob and not fnmatch(rel, path_glob):
-            continue
-        if is_binary_ext(abs_path.name):
-            continue
-        try:
-            if abs_path.stat().st_size > limits.max_search_filesize:
-                continue
-            with open(abs_path, "rb") as fh:
-                sniff = fh.read(limits.binary_sniff_bytes)
-                if looks_binary(sniff):
-                    continue
-                fh.seek(0)
-                raw = fh.read(limits.max_search_filesize)
-        except OSError:
             continue
 
         text = raw.decode("utf-8", errors="replace")
@@ -211,6 +205,55 @@ def _search_python(
         if truncated:
             break
 
+    return matches, truncated
+
+
+def _iter_disk_documents(
+    root: Path, ignore: IgnoreRules, limits: EngineLimits
+) -> Iterator[tuple[str, bytes]]:
+    """Yield ``(rel_posix, raw_bytes)`` for searchable files, skipping binary and
+    oversized ones — the same filtering the previous inline loop applied."""
+
+    for rel, abs_path in walk_files(root, ignore, limits=limits):
+        if is_binary_ext(abs_path.name):
+            continue
+        try:
+            if abs_path.stat().st_size > limits.max_search_filesize:
+                continue
+            with open(abs_path, "rb") as fh:
+                sniff = fh.read(limits.binary_sniff_bytes)
+                if looks_binary(sniff):
+                    continue
+                fh.seek(0)
+                raw = fh.read(limits.max_search_filesize)
+        except OSError:
+            continue
+        yield rel, raw
+
+
+def _search_python(
+    root: Path,
+    ignore: IgnoreRules,
+    query: str,
+    *,
+    regex: bool,
+    case_sensitive: bool,
+    path_glob: str | None,
+    max_results: int,
+    limits: EngineLimits,
+    repo_id: str,
+) -> SearchResults:
+    deadline = time.monotonic() + limits.search_timeout_s
+    matches, truncated = search_documents(
+        _iter_disk_documents(root, ignore, limits),
+        query,
+        regex=regex,
+        case_sensitive=case_sensitive,
+        path_glob=path_glob,
+        max_results=max_results,
+        limits=limits,
+        deadline=deadline,
+    )
     return SearchResults(
         repo_id=repo_id,
         query=query,

@@ -1,8 +1,8 @@
 """Code-intelligence layer: read-only, bounded, containment-checked access to
 repositories behind a single :class:`RepositoryInterface`.
 
-Functional today: the local adapter (Phases 0–3).
-Scaffolded: the GitHub adapter and the deferred code-graph capabilities.
+Functional today: the local adapter and the GitHub-over-MCP adapter (Phases 0–3).
+Scaffolded: the deferred code-graph capabilities (find_symbol/references/deps).
 """
 
 from .errors import (
@@ -18,7 +18,7 @@ from .errors import (
     RepositoryNotFoundError,
     SearchError,
 )
-from .github_adapter import GitHubRepositoryAdapter
+from .github_mcp_repository import GitHubMCPRepository
 from .limits import DEFAULT_LIMITS, EngineLimits
 from .local_adapter import LocalRepositoryAdapter
 from .models import (
@@ -41,7 +41,7 @@ __all__ = [
     # interface + adapters
     "RepositoryInterface",
     "LocalRepositoryAdapter",
-    "GitHubRepositoryAdapter",
+    "GitHubMCPRepository",
     "RepositoryRegistry",
     # models
     "Citation",

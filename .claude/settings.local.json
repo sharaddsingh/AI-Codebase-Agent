@@ -15,7 +15,8 @@
       "Bash(./.venv/Scripts/python.exe -m mypy code_intelligence retrieval agent backend)",
       "Bash(npm run *)",
       "Bash(./.venv/Scripts/python.exe -m pip show anthropic)",
-      "Bash(./.venv/Scripts/python.exe -m pip show openai)"
+      "Bash(./.venv/Scripts/python.exe -m pip show openai)",
+      "Bash(grep -nA30 \"tool.pytest\\\\|tool.ruff\\\\|tool.mypy\" \"C:/Users/shara/OneDrive/Desktop/ai-codebase-agent/pyproject.toml\")"
     ]
   }
 }
