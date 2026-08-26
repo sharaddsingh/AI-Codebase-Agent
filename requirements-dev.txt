@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# Testing
+pytest>=8.2
+pytest-asyncio>=0.23
+
+# Lint & type checks
+ruff>=0.6
+mypy>=1.11

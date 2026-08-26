@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-codebase-agent"
+version = "0.1.0"
+description = "AI Codebase Engineering Agent — local-repository MVP (Phases 0–3)"
+requires-python = ">=3.10"
+readme = "README.md"
+
+# Runtime dependencies are pinned in requirements.txt (installed separately).
+# This file exists to make the monorepo packages importable via `pip install -e .`
+# and to hold tooling configuration.
+
+[tool.setuptools]
+# NOTE: the `mcp/` directory is intentionally NOT a package here — it must not
+# shadow the official `mcp` SDK. It is run as a script (`python mcp/server.py`).
+packages = ["code_intelligence", "retrieval", "agent", "backend", "backend.routers"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["frontend", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "S"]
+# S603/S607: we invoke `rg` and `git` with fixed argument lists (shell=False),
+# resolving availability via shutil.which; partial-path/subprocess warnings are
+# not applicable. S101: asserts are used for type-narrowing and in tests.
+ignore = ["E501", "S101", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+"tests/fixtures/**" = ["ALL"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are *designed* to be called in argument
+# defaults; this is the framework's idiom, not the B008 mutable-default footgun.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+namespace_packages = true
+explicit_package_bases = true
+check_untyped_defs = true
+warn_unused_ignores = false
+exclude = ["frontend/", "tests/fixtures/", "\\.venv/"]

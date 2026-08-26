@@ -1,0 +1,53 @@
+# Compose for the AI Codebase Engineering Agent (local, read-only MVP).
+#
+# NOTE: Provided as scaffolding. It has NOT been run in this environment (Docker
+# is not installed here). Paths below are relative to THIS file (the docker/ dir).
+#
+# Usage (from the repo root):
+#   cp .env.example .env   # fill in ANTHROPIC_API_KEY, or set MODEL_PROVIDER=mock
+#   CODE_DIR=/abs/path/to/your/code docker compose -f docker/docker-compose.yml up --build
+#
+# Then open http://localhost:3000. In the UI, register a repo by the path it has
+# INSIDE the backend container, e.g. /repos/my-project.
+
+services:
+  backend:
+    build:
+      context: ..                      # repo root
+      dockerfile: docker/backend.Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env                        # secrets & config (never baked into the image)
+    environment:
+      # Confine registration to the mounted code directory inside the container.
+      ALLOWED_REPO_ROOTS: /repos
+      CORS_ORIGINS: http://localhost:3000
+    volumes:
+      # Mount your host code READ-ONLY. Override the host side with CODE_DIR.
+      - "${CODE_DIR:-..}:/repos:ro"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/frontend.Dockerfile
+      args:
+        # Browser reaches the backend via the published host port.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# ── Deferred infrastructure (documented target, intentionally NOT enabled) ────
+# The Hybrid-RAG / persistence phases will add services like these. They are
+# left commented out so nobody mistakes them for working features.
+#
+#  postgres:   # metadata, repositories, snapshots, eval runs
+#    image: postgres:16
+#  redis:      # caching / rate limiting / job coordination
+#    image: redis:7
+#  qdrant:     # vector store for embedding retrieval
+#    image: qdrant/qdrant:latest

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(NEXT_TELEMETRY_DISABLED=1 npm run build)",
+      "Bash(./.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(npm test *)",
+      "Bash(npm view *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest)",
+      "Bash(npm install *)",
+      "Bash(./.venv/Scripts/python.exe -m ruff check .)",
+      "Bash(./.venv/Scripts/python.exe -m ruff check . --output-format=concise)",
+      "Bash(echo \"next build exit code: $?\")",
+      "Bash(./.venv/Scripts/python.exe -m ruff check . --fix --output-format=concise)",
+      "Bash(./.venv/Scripts/python.exe -m mypy code_intelligence retrieval agent backend)",
+      "Bash(npm run *)",
+      "Bash(./.venv/Scripts/python.exe -m pip show anthropic)",
+      "Bash(./.venv/Scripts/python.exe -m pip show openai)"
+    ]
+  }
+}
