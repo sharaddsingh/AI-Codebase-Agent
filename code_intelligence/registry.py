@@ -227,3 +227,21 @@ class RepositoryRegistry:
 
     def list(self) -> list[RepositoryInfo]:
         return list(self._info.values())
+
+    def remove(self, repo_id: str) -> None:
+        """Forget a repository — remove it from the in-memory registry only.
+
+        This drops both internal maps for ``repo_id`` and releases the adapter
+        reference. It performs **no** filesystem, git, or GitHub/MCP operation:
+        the local directory and the remote GitHub repository are left completely
+        untouched. The shared GitHub MCP session is intentionally *not* closed
+        here — other GitHub repos may still be using it, and it is closed only on
+        app shutdown via :meth:`close_github_mcp`. Raises
+        :class:`RepositoryNotFoundError` for an unknown id (mirrors
+        :meth:`get`/:meth:`get_info`).
+        """
+
+        if repo_id not in self._info:
+            raise RepositoryNotFoundError(f"No repository registered with id '{repo_id}'.")
+        self._repos.pop(repo_id, None)
+        del self._info[repo_id]

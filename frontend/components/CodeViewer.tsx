@@ -5,12 +5,12 @@ import { FileWarning } from "lucide-react";
 import type { FileContent } from "@/lib/types";
 import { ApiError, getFile } from "@/lib/api";
 import { basename, lineInRange } from "@/lib/citations";
+import type { HighlightRange } from "@/lib/openFiles";
 import { Badge, EmptyState, ErrorBanner, Spinner } from "./ui";
 
-export interface HighlightRange {
-  start: number;
-  end: number;
-}
+// Re-exported for backward compatibility; the type now lives in lib/openFiles
+// (framework-free, so the tab reducer can share it and be unit-tested).
+export type { HighlightRange };
 
 const CONTEXT_LINES = 60;
 

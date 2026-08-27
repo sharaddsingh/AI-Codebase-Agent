@@ -29,3 +29,14 @@ def list_repositories() -> list[RepositoryInfo]:
 def get_repository(repo_id: str) -> RepositoryInfo:
     # get_info raises RepositoryNotFoundError (HTTP 404) for an unknown id.
     return get_registry().get_info(repo_id)
+
+
+@router.delete("/{repo_id}", status_code=204)
+def remove_repository(repo_id: str) -> None:
+    """Unregister a repository from this application's in-memory registry.
+
+    This only forgets the repository here — it never deletes files, the local
+    directory, or anything on GitHub, and issues no git/MCP call. ``remove``
+    raises RepositoryNotFoundError (HTTP 404) for an unknown id.
+    """
+    get_registry().remove(repo_id)

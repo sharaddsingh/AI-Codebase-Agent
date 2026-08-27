@@ -8,7 +8,7 @@ import { streamAgentChat } from "@/lib/sse";
 import { agentResultFromEvent } from "@/lib/citations";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { CitationList } from "./CitationList";
-import { Badge, ErrorBanner, SectionLabel } from "./ui";
+import { Badge, Button, ErrorBanner, SectionLabel } from "./ui";
 
 const TIMEOUT_MS = 120_000;
 
@@ -127,21 +127,17 @@ export function ChatPanel({
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-zinc-600">Ctrl/⌘ + Enter to send</span>
           {streaming ? (
-            <button
-              type="button"
-              onClick={onStop}
-              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
-            >
-              <Square className="h-3.5 w-3.5" /> Stop
-            </button>
+            <Button variant="subtle" onClick={onStop} icon={<Square className="h-3.5 w-3.5" />}>
+              Stop
+            </Button>
           ) : (
-            <button
+            <Button
               type="submit"
               disabled={!canChat || question.trim() === ""}
-              className="inline-flex items-center gap-1.5 rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+              icon={<Send className="h-3.5 w-3.5" />}
             >
-              <Send className="h-3.5 w-3.5" /> Send
-            </button>
+              Send
+            </Button>
           )}
         </div>
         {!modelConfigured ? (
@@ -189,6 +185,13 @@ export function ChatPanel({
             </div>
             {result ? (
               <>
+                {result.budget_exhausted ? (
+                  <p className="rounded-md border border-amber-900 bg-amber-950/40 px-2.5 py-2 text-[11px] text-amber-300">
+                    The agent stopped because its investigation budget was reached, so this
+                    answer may be partial. Try narrowing the question or naming a specific file
+                    or symbol.
+                  </p>
+                ) : null}
                 <CitationList citations={result.citations} onOpen={onOpenCitation} />
                 <RunStats result={result} />
               </>

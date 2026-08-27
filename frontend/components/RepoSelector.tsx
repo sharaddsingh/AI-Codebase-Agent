@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { FolderGit2, Github, Plus, ShieldAlert } from "lucide-react";
+import { FolderGit2, Github, Plus, ShieldAlert, X } from "lucide-react";
 import type { HealthResponse, RepositoryInfo, RepositoryKind } from "@/lib/types";
 import { ApiError } from "@/lib/api";
-import { Badge, ErrorBanner, SectionLabel, Spinner } from "./ui";
+import { Badge, Button, ErrorBanner, SectionLabel, Spinner } from "./ui";
 
 const SAMPLE_PATH = "tests/fixtures/sample_repo";
 // A tiny, canonical public repo for demoing GitHub registration.
@@ -29,6 +29,7 @@ interface RepoSelectorProps {
   healthError: string | null;
   onSelectRepo: (id: string) => void;
   onRegister: (path: string, name?: string) => Promise<void>;
+  onRemove: (repo: RepositoryInfo) => void;
 }
 
 export function RepoSelector({
@@ -38,6 +39,7 @@ export function RepoSelector({
   healthError,
   onSelectRepo,
   onRegister,
+  onRemove,
 }: RepoSelectorProps) {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
@@ -63,7 +65,10 @@ export function RepoSelector({
 
   return (
     <div className="flex flex-col gap-3">
-      <HealthIndicator health={health} healthError={healthError} />
+      <div className="flex flex-col gap-1.5">
+        <SectionLabel>Status</SectionLabel>
+        <HealthIndicator health={health} healthError={healthError} />
+      </div>
 
       <form onSubmit={submit} className="flex flex-col gap-2">
         <SectionLabel>Register a repository</SectionLabel>
@@ -77,14 +82,14 @@ export function RepoSelector({
             disabled={busy}
             className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-sky-600 focus:outline-none disabled:opacity-60"
           />
-          <button
+          <Button
             type="submit"
-            disabled={busy || path.trim() === ""}
-            className="inline-flex items-center gap-1 rounded-md bg-sky-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+            busy={busy}
+            disabled={path.trim() === ""}
+            icon={<Plus className="h-3.5 w-3.5" />}
           >
-            {busy ? <Spinner className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
             Register
-          </button>
+          </Button>
         </div>
         {repos.length === 0 ? (
           <div className="flex flex-col gap-1 text-[11px] text-zinc-500">
@@ -121,33 +126,53 @@ export function RepoSelector({
               const isActive = repo.id === activeRepoId;
               const Icon = repo.kind === "github" ? Github : FolderGit2;
               return (
-                <button
-                  key={repo.id}
-                  type="button"
-                  onClick={() => onSelectRepo(repo.id)}
-                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
-                    isActive
-                      ? "border-sky-700 bg-sky-950/50 text-zinc-100"
-                      : "border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate font-medium">{repo.name}</span>
-                  <span
-                    className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                      repo.kind === "github"
-                        ? "bg-sky-950 text-sky-300"
-                        : "bg-zinc-800 text-zinc-400"
+                <div key={repo.id} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => onSelectRepo(repo.id)}
+                    className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 pr-8 text-left text-xs transition-colors ${
+                      isActive
+                        ? "border-sky-700 bg-sky-950/50 text-zinc-100"
+                        : "border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900"
                     }`}
                   >
-                    {repo.kind}
-                  </span>
-                  {repo.file_count_hint != null ? (
-                    <span className="flex-shrink-0 text-[10px] text-zinc-500">
-                      {repo.file_count_hint} files
+                    <Icon className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" aria-hidden />
+                    <span
+                      className="min-w-0 flex-1 truncate font-medium"
+                      title={`${repo.name} · ${repo.root}`}
+                    >
+                      {repo.name}
                     </span>
-                  ) : null}
-                </button>
+                    <span
+                      className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                        repo.kind === "github"
+                          ? "bg-sky-950 text-sky-300"
+                          : "bg-zinc-800 text-zinc-400"
+                      }`}
+                    >
+                      {repo.kind}
+                    </span>
+                    {repo.file_count_hint != null ? (
+                      <span className="flex-shrink-0 text-[10px] text-zinc-500">
+                        {repo.file_count_hint} files
+                      </span>
+                    ) : null}
+                  </button>
+                  {/* Remove = forget this repo from the app's list only. It never
+                      deletes local files or the GitHub repository (see api.removeRepository). */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(repo);
+                    }}
+                    title="Remove repository"
+                    aria-label={`Remove ${repo.name}`}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-500 opacity-0 transition-opacity hover:bg-zinc-700 hover:text-zinc-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-600 group-hover:opacity-100"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </div>
               );
             })}
           </div>

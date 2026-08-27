@@ -119,6 +119,20 @@ export function registerRepository(
   });
 }
 
+/**
+ * Unregister a repository from the app's in-memory registry (backend
+ * `DELETE /repositories/{id}`, 204 → no body). This only makes the app *forget*
+ * the repository — it never deletes local files, the local directory, or the
+ * GitHub repository, and issues no git/MCP write. Distinct from closing an
+ * editor tab, which is a pure client-side UI action.
+ */
+export function removeRepository(repoId: string, signal?: AbortSignal): Promise<void> {
+  return request<void>(`/repositories/${encodeURIComponent(repoId)}`, {
+    method: "DELETE",
+    signal,
+  });
+}
+
 export function getTree(
   repoId: string,
   path: string,

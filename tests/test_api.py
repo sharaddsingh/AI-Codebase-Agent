@@ -102,6 +102,36 @@ def test_unknown_repo_returns_404(client: TestClient) -> None:
     assert r.json()["error"]["code"] == "repository_not_found"
 
 
+def test_remove_repository(client: TestClient, repo_id: str) -> None:
+    # Present before removal.
+    assert any(r["id"] == repo_id for r in client.get("/api/repositories").json())
+    # DELETE removes it from the app's registry (204, no body).
+    r = client.delete(f"/api/repositories/{repo_id}")
+    assert r.status_code == 204, r.text
+    # Gone: direct GET 404s and it no longer appears in the list.
+    assert client.get(f"/api/repositories/{repo_id}").status_code == 404
+    assert all(r["id"] != repo_id for r in client.get("/api/repositories").json())
+
+
+def test_remove_unknown_repo_returns_404(client: TestClient) -> None:
+    r = client.delete("/api/repositories/repo_missing")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "repository_not_found"
+
+
+def test_remove_does_not_delete_local_directory(
+    client: TestClient, sample_repo_path: Path
+) -> None:
+    # The safety guarantee: forgetting a repo never touches the filesystem.
+    rid = client.post(
+        "/api/repositories", json={"path": str(sample_repo_path), "name": "sample"}
+    ).json()["id"]
+    assert client.delete(f"/api/repositories/{rid}").status_code == 204
+    # The real directory and its files are untouched on disk.
+    assert sample_repo_path.is_dir()
+    assert (sample_repo_path / "README.md").exists()
+
+
 def _sse_events(text: str) -> list[tuple[str, dict]]:
     """Parse an SSE body into a list of (event, data) pairs."""
     events: list[tuple[str, dict]] = []
@@ -149,9 +179,9 @@ def test_agent_chat_unknown_repo_streams_error(client: TestClient) -> None:
 
 
 # ---- GitHub repositories through the real API route (mocked network) --------
-# The registry's GitHubClient is backed by httpx.MockTransport, so POSTing a
-# GitHub URL exercises the whole stack — source detection, adapter, tree/file/
-# search, and an agent run — without ever reaching github.com.
+# The registry's GitHub MCP client is replaced by an in-process fake (github_mock),
+# so POSTing a GitHub URL exercises the whole stack — source detection, adapter,
+# tree/file/search, and an agent run — without ever reaching github.com.
 
 GH_URL = "https://github.com/octocat/hello"
 
@@ -159,7 +189,7 @@ GH_URL = "https://github.com/octocat/hello"
 @pytest.fixture
 def gh_client() -> Iterator[TestClient]:
     deps.reset_state()
-    deps.set_registry(RepositoryRegistry(github_client=mock_client()))
+    deps.set_registry(RepositoryRegistry(github_mcp_client=mock_client()))
     deps.set_model_adapter(
         MockAdapter(
             [
@@ -220,7 +250,7 @@ def test_github_search(gh_client: TestClient, gh_repo_id: str) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["total_matches"] >= 1
-    assert body["engine"] == "github-api"
+    assert body["engine"] == "github-mcp"
 
 
 def test_github_traversal_returns_400(gh_client: TestClient, gh_repo_id: str) -> None:
@@ -262,11 +292,11 @@ def test_invalid_github_url_returns_400(gh_client: TestClient) -> None:
 
 def test_missing_github_repo_returns_404() -> None:
     deps.reset_state()
-    deps.set_registry(RepositoryRegistry(github_client=mock_client(repo_status=404)))
+    deps.set_registry(RepositoryRegistry(github_mcp_client=mock_client(repo_status=404)))
     try:
         with TestClient(app) as c:
             r = c.post("/api/repositories", json={"path": GH_URL})
             assert r.status_code == 404
-            assert r.json()["error"]["code"] == "github_repo_not_found"
+            assert r.json()["error"]["code"] == "github_repository_not_found"
     finally:
         deps.reset_state()

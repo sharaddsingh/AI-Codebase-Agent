@@ -68,7 +68,7 @@ def test_allowed_roots_permit_within(tmp_path: Path) -> None:
 
 # ---- GitHub registration (mocked network) ----------------------------------
 def test_register_github_via_unified_entry() -> None:
-    reg = RepositoryRegistry(github_client=mock_client())
+    reg = RepositoryRegistry(github_mcp_client=mock_client())
     info = reg.register(GH_URL)  # auto-detected as GitHub, not a local path
     assert info.kind is RepositoryKind.github
     assert info.root == "https://github.com/octocat/hello"
@@ -77,7 +77,7 @@ def test_register_github_via_unified_entry() -> None:
 
 
 def test_local_and_github_coexist(sample_repo_path: Path) -> None:
-    reg = RepositoryRegistry(github_client=mock_client())
+    reg = RepositoryRegistry(github_mcp_client=mock_client())
     local = reg.register(str(sample_repo_path))
     gh = reg.register(GH_URL)
     assert local.kind is RepositoryKind.local
@@ -88,7 +88,7 @@ def test_local_and_github_coexist(sample_repo_path: Path) -> None:
 
 
 def test_github_registration_is_idempotent() -> None:
-    reg = RepositoryRegistry(github_client=mock_client())
+    reg = RepositoryRegistry(github_mcp_client=mock_client())
     a = reg.register(GH_URL)
     b = reg.register(GH_URL)
     assert a.id == b.id
@@ -98,3 +98,44 @@ def test_github_registration_is_idempotent() -> None:
 def test_register_empty_source_rejected() -> None:
     with pytest.raises(RegistrationError):
         RepositoryRegistry().register("   ")
+
+
+# ---- Removal (forget from the in-memory registry only) ---------------------
+def test_remove_forgets_repository(registry: RepositoryRegistry, sample_repo_path: Path) -> None:
+    info = registry.register_local(str(sample_repo_path))
+    assert len(registry.list()) == 1
+    registry.remove(info.id)
+    assert registry.list() == []
+    with pytest.raises(RepositoryNotFoundError):
+        registry.get(info.id)
+    with pytest.raises(RepositoryNotFoundError):
+        registry.get_info(info.id)
+
+
+def test_remove_unknown_id_raises(registry: RepositoryRegistry) -> None:
+    with pytest.raises(RepositoryNotFoundError):
+        registry.remove("repo_does_not_exist")
+
+
+def test_remove_one_leaves_others(
+    registry: RepositoryRegistry, sample_repo_path: Path, tmp_path: Path
+) -> None:
+    # Removing one repository must not disturb others still registered.
+    a = registry.register_local(str(sample_repo_path))
+    other = tmp_path / "proj"
+    other.mkdir()
+    b = registry.register_local(str(other))
+    registry.remove(a.id)
+    assert [i.id for i in registry.list()] == [b.id]
+    assert registry.get(b.id).id == b.id
+
+
+def test_remove_github_repo(sample_repo_path: Path) -> None:
+    # A GitHub repo can be forgotten too; the shared MCP client is not torn down
+    # (removal only mutates the in-memory maps), so GitHub still works afterward.
+    reg = RepositoryRegistry(github_mcp_client=mock_client())
+    gh = reg.register(GH_URL)
+    reg.remove(gh.id)
+    assert reg.list() == []
+    again = reg.register(GH_URL)
+    assert again.kind is RepositoryKind.github
