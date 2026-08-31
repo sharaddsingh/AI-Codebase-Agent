@@ -1,7 +1,7 @@
 # Setup guide
 
-A step-by-step walkthrough to get the **AI Codebase Engineering Agent** running
-locally from scratch. For the architecture and the full env-var reference, see
+A step-by-step walkthrough to get **AI Codebase Agent** running locally from
+scratch. The architecture overview and full env-var reference live in
 [README.md](README.md) and [docs/](docs/).
 
 > **TL;DR** — install Python + Node deps, copy `.env.example` → `.env`, then run
@@ -19,6 +19,7 @@ locally from scratch. For the architecture and the full env-var reference, see
 | npm | 9+ | `npm --version` |
 | ripgrep | *optional* (fast search) | `rg --version` |
 | Anthropic API key | *optional* (use `mock` instead) | — |
+| GitHub token | *required* for GitHub repos via MCP | — |
 
 If `python` maps to Python 2 on your system, use `python3` everywhere below.
 
@@ -37,11 +38,14 @@ Open `.env` and choose one of:
 - **With a real model:** set `MODEL_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=sk-ant-...`
 - **Without any key (recommended for a first run):** set `MODEL_PROVIDER=mock`
 
+For GitHub repositories, also set `GITHUB_TOKEN=ghp_...` — the official remote
+GitHub MCP server requires a token even for public repos.
+
 Everything else has working defaults. `.env` is git-ignored — never commit it.
 
 ---
 
-## 3. Python backend, engine, agent, and MCP
+## 3. Python backend, engine, and agent
 
 Create and activate a virtual environment, then install dependencies.
 
@@ -74,6 +78,12 @@ npm install
 cd ..
 ```
 
+Optionally point the frontend at a non-default backend URL:
+
+```bash
+echo "NEXT_PUBLIC_API_BASE_URL=http://localhost:8000" > frontend/.env.local
+```
+
 ---
 
 ## 5. (Optional) Install ripgrep for fast search
@@ -92,10 +102,14 @@ Open a terminal per service (activate the venv in each Python terminal).
 
 **① Backend** — http://localhost:8000 (interactive API docs at `/docs`):
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn backend.main:app --reload --reload-dir backend --reload-dir agent --reload-dir retrieval --reload-dir code_intelligence --port 8000
 ```
-Expect a JSON startup log line. If `ALLOWED_REPO_ROOTS` is empty you'll see a
-one-line warning that registration is unrestricted — expected for local dev.
+
+> The `--reload-dir` flags matter. Uploads land in `./uploaded_repos/`, inside
+> the project, so a bare `--reload` watches them too: upload any folder
+> containing a `.py` file and the reloader restarts the server, which wipes the
+> in-memory registry and makes the folder you just uploaded disappear. Scoping
+> the watcher to the source packages fixes that and still reloads on code edits.
 
 **② Frontend** — http://localhost:3000:
 ```bash
@@ -113,24 +127,30 @@ python mcp/server.py
 ## 7. First-run smoke test
 
 ### Via the UI
+
 1. Open **http://localhost:3000**.
-2. Register a repository by **absolute path**. Use the bundled fixture, e.g.
-   `C:\Users\you\...\ai-codebase-agent\tests\fixtures\sample_repo`
-   (or the repo root itself).
+2. Click **Upload** and drop a folder from your computer. (Or click **GitHub**
+   and paste a URL like `facebook/react`.)
 3. Browse the file tree and open a file in the viewer.
 4. In the chat, ask: **"How does authentication work?"**
-5. Watch the activity timeline (classify → plan → tool calls → answer) and the
-   citation panel populate with clickable `file:line` references.
+5. Watch the activity rail (classify → plan → tool calls → answer) and the
+   citation chips populate with clickable `file:line` references.
 
 ### Via curl (backend only)
+
 ```bash
 # Health
 curl http://localhost:8000/api/health
 
-# Register a repo (returns JSON incl. its "id")
-curl -X POST http://localhost:8000/api/repositories \
+# Register a GitHub repo (returns JSON including its "id")
+curl -X POST http://localhost:8000/api/repositories/github \
   -H "Content-Type: application/json" \
-  -d '{"path": "tests/fixtures/sample_repo", "name": "sample"}'
+  -d '{"url": "https://github.com/octocat/Hello-World"}'
+
+# Upload a folder (replace @repo with a directory you want to register)
+curl -X POST http://localhost:8000/api/repositories/upload \
+  -F "files=@path/to/file1.py" \
+  -F "files=@path/to/file2.py"
 
 # Ask the agent (SSE stream). Replace <REPO_ID> with the id from above.
 curl -N -X POST http://localhost:8000/api/agent/chat \
@@ -139,7 +159,7 @@ curl -N -X POST http://localhost:8000/api/agent/chat \
 ```
 
 With `MODEL_PROVIDER=mock` the agent returns a deterministic scripted response —
-useful to confirm the full request→stream path before wiring a real key.
+useful to confirm the full request → stream path before wiring a real key.
 
 ---
 
@@ -151,29 +171,33 @@ python -m pytest
 python -m ruff check .
 python -m mypy code_intelligence retrieval agent backend
 ```
-Expected: `95 passed, 2 skipped` (the 2 skips are ripgrep-specific and run only
-when ripgrep is installed), ruff clean, mypy clean.
 
 **Frontend** (from `frontend/`):
 ```bash
-npm test
+npx tsc --noEmit
 npm run lint
-npm run build
 ```
 
 ---
 
-## 9. (Optional) Docker
+## 9. Deployment
 
-> ⚠️ The Docker files are **scaffolding and untested** in this environment
-> (Docker was not available during development). Treat them as a starting point.
+The included `Dockerfile` builds a single image that runs the FastAPI backend
+and serves the prebuilt Next.js frontend from the same origin. Render and
+Fly.io manifests are provided for one-click deploys. See
+[docs/DEPLOY.md](docs/DEPLOY.md) for the full guide.
 
 ```bash
-cp .env.example .env      # add ANTHROPIC_API_KEY, or MODEL_PROVIDER=mock
-CODE_DIR=/abs/path/to/your/code docker compose -f docker/docker-compose.yml up --build
+docker build -t ai-codebase-agent .
+docker run -p 8000:8000 \
+  -e ANTHROPIC_API_KEY \
+  -e GITHUB_TOKEN \
+  -v ai-codebase-agent-uploads:/app/uploaded_repos \
+  ai-codebase-agent
 ```
-Then open http://localhost:3000. Inside the container, register a repo by its
-**in-container** path (e.g. `/repos/my-project`, the mounted `CODE_DIR`).
+
+Mount a persistent volume at `/app/uploaded_repos` (or wherever `UPLOAD_ROOT`
+points) so uploaded folders survive container restarts.
 
 ---
 
@@ -184,10 +208,11 @@ Then open http://localhost:3000. Inside the container, register a repo by its
 | Frontend loads but every call fails | Backend not running, or `NEXT_PUBLIC_API_BASE_URL` doesn't match the backend URL. Start the backend first. |
 | CORS error in browser console | Add the frontend origin to `CORS_ORIGINS` in `.env` (default already allows `http://localhost:3000`). |
 | Chat error "model not configured" | `MODEL_PROVIDER=anthropic` but `ANTHROPIC_API_KEY` is empty. Set the key, or switch to `MODEL_PROVIDER=mock`. |
-| "Path is not within an allowed repository root" | `ALLOWED_REPO_ROOTS` is set and doesn't include your path. Add it, or clear the variable for local dev. |
-| Register fails with "Path does not exist" | Use an **absolute** path to an existing directory. |
+| GitHub register fails with auth error | `GITHUB_TOKEN` is missing. The remote GitHub MCP server mandates a token even for public repos. |
+| Upload fails with "file count exceeds limit" | Browser-picked folder is too large; the pipeline caps at 5000 files. |
 | Search seems slow / 2 tests skip | ripgrep isn't on `PATH`; install it (step 5) or ignore — the fallback is correct, just slower. |
 | `python` runs Python 2 | Use `python3` (and `python3 -m venv`). |
+| Uploaded folder vanishes right after upload | You ran the backend with a bare `--reload`. Uploads are written under `./uploaded_repos/`, so uploading a Python project trips the reloader, restarts the server, and clears the in-memory registry. Use the `--reload-dir` command in step 6. |
 | Port already in use | Change `--port` for uvicorn and/or run `next dev -p <port>`, and update `NEXT_PUBLIC_API_BASE_URL` / `CORS_ORIGINS` accordingly. |
 
 ---
@@ -196,4 +221,5 @@ Then open http://localhost:3000. Inside the container, register a repo by its
 - Architecture & data flow → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Security model & enforcement → [docs/SECURITY.md](docs/SECURITY.md)
 - MCP server & clients → [docs/MCP.md](docs/MCP.md)
+- Deployment guides → [docs/DEPLOY.md](docs/DEPLOY.md)
 - What's deferred and why → [docs/ROADMAP.md](docs/ROADMAP.md)

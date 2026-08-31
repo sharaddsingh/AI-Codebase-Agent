@@ -148,6 +148,10 @@ class GitHubMCPRepository(RepositoryInterface):
         return {"owner": self.owner, "repo": self.repo, **extra}
 
     def _load(self) -> None:
+        # One timestamp for this load, used both as the snapshot capture time and
+        # as the fallback commit date below so the two agree.
+        loaded_at = datetime.now(tz=timezone.utc)
+
         commits = _extract_commits(
             self._client.call_tool("list_commits", self._args(perPage=1)).json()
         )
@@ -157,7 +161,11 @@ class GitHubMCPRepository(RepositoryInterface):
             )
         head = commits[0]
         self._revision = str(head.get("sha") or "") or None
-        self._commit_date = _parse_commit_date(head)
+        # A commit is not guaranteed to carry a parsable committer/author date.
+        # Fall back to the load time instead of leaving this None: it feeds
+        # FileMetadata.modified_at, which the API models as a required datetime,
+        # so a None here would fail validation on every metadata request.
+        self._commit_date = _parse_commit_date(head) or loaded_at
         if not self._revision:
             raise GitHubMCPToolError("The GitHub MCP server returned a commit without a sha.")
 
@@ -193,7 +201,7 @@ class GitHubMCPRepository(RepositoryInterface):
             kind="github",
             revision=self._revision,
             dirty=False,
-            captured_at=datetime.now(tz=timezone.utc),
+            captured_at=loaded_at,
         )
 
     def _add_ancestors(self, path: str) -> None:
@@ -305,6 +313,7 @@ class GitHubMCPRepository(RepositoryInterface):
         rel = normalize_relative(path)
         blob = self._require_file(rel)
         raw = self._get_content(rel, blob)
+        assert self._commit_date is not None  # set in _load()
         return build_metadata_from_bytes(
             self.id,
             rel,
@@ -459,8 +468,10 @@ def _extract_search(data: Any) -> tuple[list[dict[str, Any]], int, bool]:
                 items = [i for i in v if isinstance(i, dict)]
                 total = data.get("total_count")
                 if not isinstance(total, int):
-                    total = data.get("total") if isinstance(data.get("total"), int) else len(items)
-                return items, int(total), bool(data.get("incomplete_results", False))
+                    total = data.get("total")
+                if not isinstance(total, int):
+                    total = len(items)
+                return items, total, bool(data.get("incomplete_results", False))
         return [], 0, False
     if isinstance(data, list):
         items = [i for i in data if isinstance(i, dict)]

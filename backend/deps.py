@@ -7,11 +7,18 @@ runs deterministically without an API key.
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 from agent import AgentLoop, AnthropicAdapter, MockAdapter, ModelAdapter
 from code_intelligence.registry import RepositoryRegistry
 from code_intelligence.repository import RepositoryInterface
 
 from .config import Settings, get_settings
+from .github_repos_state import discover_github_repos
+from .uploaded_repos import UploadLimits, discover_uploaded_repos
+
+log = logging.getLogger("backend.deps")
 
 _registry: RepositoryRegistry | None = None
 _model_adapter_override: ModelAdapter | None = None
@@ -22,8 +29,6 @@ def get_registry() -> RepositoryRegistry:
     if _registry is None:
         s = get_settings()
         _registry = RepositoryRegistry(
-            allowed_roots=s.allowed_roots_list(),
-            respect_gitignore=s.respect_gitignore,
             github_token=s.github_token,
             github_mcp_url=s.github_mcp_url,
             github_mcp_toolsets=s.github_mcp_toolsets,
@@ -41,7 +46,7 @@ def set_registry(registry: RepositoryRegistry | None) -> None:
     if _registry is not None and _registry is not registry:
         try:
             _registry.close_github_mcp()
-        except Exception:  # noqa: BLE001 - best-effort cleanup
+        except Exception:  # noqa: S110 - best-effort cleanup
             pass
     _registry = registry
 
@@ -87,7 +92,94 @@ def reset_state() -> None:
     if _registry is not None:
         try:
             _registry.close_github_mcp()
-        except Exception:  # noqa: BLE001 - best-effort cleanup
+        except Exception:  # noqa: S110 - best-effort cleanup
             pass
     _registry = None
     _model_adapter_override = None
+
+
+def get_upload_root() -> Path:
+    """Resolved on-disk root the upload pipeline writes to.
+
+    Defaults to ``./uploaded_repos`` and is created on first upload. The
+    caller is responsible for ensuring the path lives somewhere the process
+    can write to (the default sits next to the project root).
+    """
+
+    return Path(get_settings().upload_root).resolve()
+
+
+def upload_limits() -> UploadLimits:
+    """Per-upload caps, from ``UPLOAD_MAX_*`` in the environment."""
+
+    s = get_settings()
+    return UploadLimits(
+        max_total_bytes=s.upload_max_total_mb * 1024 * 1024,
+        max_file_bytes=s.upload_max_file_mb * 1024 * 1024,
+        max_files=s.upload_max_files,
+    )
+
+
+def rehydrate_uploads() -> int:
+    """Re-register uploaded folders that a previous process left on disk.
+
+    The registry is in-memory but the uploads are not, so without this a
+    backend restart — a code edit under ``--reload``, a container redeploy —
+    silently forgets every uploaded repo while its files sit right there in the
+    upload root. The browser keeps showing those repos and every request for
+    one fails with "No repository registered with id ...", *including* the
+    DELETE that would have cleared it, which leaves the UI wedged.
+
+    Re-registering is enough to make the browser's ids valid again: an uploaded
+    repo's id is derived from its resolved directory path (see
+    ``code_intelligence.registry._repo_id_for``), so a revived repo comes back
+    with exactly the id the frontend is still holding.
+
+    Returns the number of repos revived. Directories are handled independently
+    and failures are logged, not raised: one unreadable folder must never stop
+    the server from starting.
+    """
+
+    root = get_upload_root()
+    registry = get_registry()
+    revived = 0
+    for repo_dir, name in discover_uploaded_repos(root):
+        try:
+            registry.register_uploaded(repo_dir, name=name)
+        except Exception:  # noqa: BLE001 - one bad directory must not block startup
+            log.warning("could not restore uploaded repo %s", repo_dir.name, exc_info=True)
+            continue
+        revived += 1
+    return revived
+
+def rehydrate_github_repos() -> int:
+    """Re-register GitHub repositories that a previous process persisted.
+
+    The registry is in-memory and the GitHub MCP session dies with the
+    process, so without this a backend restart (--reload, redeploy, orphan-
+    worker swap) wipes every GitHub registration while the frontend keeps
+    holding the same deterministic repo_<sha> id. Every subsequent DELETE /
+    file-tree call would 404 with 'No repository registered with id ...'.
+
+    We mirror the design of rehydrate_uploads: read every persisted entry,
+    call RepositoryRegistry.register_github for each, and swallow individual
+    failures so one bad URL cannot block startup. The deterministic id
+    (sha256 of owner/repo) means re-registering the same URL after a restart
+    always produces the same row the frontend already has.
+    """
+
+    root = get_upload_root()
+    registry = get_registry()
+    revived = 0
+    for stored in discover_github_repos(root):
+        try:
+            registry.register_github(stored.url, name=stored.name)
+        except Exception:  # noqa: BLE001 - one bad URL must not block startup
+            log.warning(
+                "could not restore github repo %s",
+                stored.url,
+                exc_info=True,
+            )
+            continue
+        revived += 1
+    return revived

@@ -10,7 +10,7 @@
 // may end with LF, CR, or CRLF; `data:` fields accumulate (joined with "\n");
 // lines beginning with ":" are comments and ignored.
 
-import { API_BASE_URL, ApiError } from "./api";
+import { API_BASE_URL, API_ROOT, ApiError } from "./api";
 import type { AgentEvent, AgentEventType } from "./types";
 
 export interface SSEMessage {
@@ -197,7 +197,7 @@ export async function* streamAgentChat(
 ): AsyncGenerator<AgentEvent> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/api/agent/chat`, {
+    res = await fetch(`${API_ROOT}/agent/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

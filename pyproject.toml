@@ -41,7 +41,6 @@ ignore = ["E501", "S101", "S603", "S607"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B"]
-"tests/fixtures/**" = ["ALL"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency-injection markers are *designed* to be called in argument
@@ -52,6 +51,8 @@ extend-immutable-calls = [
     "fastapi.Path",
     "fastapi.Body",
     "fastapi.Header",
+    "fastapi.File",
+    "fastapi.Form",
 ]
 
 [tool.mypy]
@@ -61,4 +62,4 @@ namespace_packages = true
 explicit_package_bases = true
 check_untyped_defs = true
 warn_unused_ignores = false
-exclude = ["frontend/", "tests/fixtures/", "\\.venv/"]
+exclude = ["frontend/", "\\.venv/"]

@@ -1,10 +1,14 @@
-"""GitHub URL detection and parsing, plus registry source detection.
+"""GitHub URL detection and parsing.
 
 Pure-string logic — no network, no filesystem. Verifies every supported URL
-form parses to ``(owner, repo)``, that malformed/deep/non-GitHub inputs raise a
-specific :class:`InvalidGitHubUrlError`, and that :meth:`detect_source` routes
-local paths and GitHub URLs correctly (the bug that started this work was a
-GitHub URL being treated as a local path).
+form parses to ``(owner, repo)``, and that malformed/deep/non-GitHub inputs
+raise a specific :class:`InvalidGitHubUrlError`.
+
+The registry used to auto-detect local-path-vs-GitHub via
+:meth:`RepositoryRegistry.detect_source` and route accordingly. The two are
+now explicit API endpoints (``POST /api/repositories/upload`` and
+``POST /api/repositories/github``), so source detection is gone and these
+tests focus on the URL parsing the GitHub endpoint relies on.
 """
 
 from __future__ import annotations
@@ -13,8 +17,6 @@ import pytest
 
 from code_intelligence.errors import InvalidGitHubUrlError
 from code_intelligence.github_url import canonical_url, looks_like_github, parse_github_url
-from code_intelligence.models import RepositoryKind
-from code_intelligence.registry import RepositoryRegistry
 
 
 @pytest.mark.parametrize(
@@ -70,22 +72,3 @@ def test_non_github_hosts_are_not_github(text: str) -> None:
     assert looks_like_github(text) is False
     with pytest.raises(InvalidGitHubUrlError):
         parse_github_url(text)
-
-
-@pytest.mark.parametrize(
-    ("source", "expected"),
-    [
-        ("C:\\Users\\me\\project", RepositoryKind.local),
-        ("C:/Users/me/project", RepositoryKind.local),
-        ("/home/me/project", RepositoryKind.local),
-        ("./relative/path", RepositoryKind.local),
-        ("src/app", RepositoryKind.local),
-        ("tests/fixtures/sample_repo", RepositoryKind.local),
-        ("/home/me/github.com-notes", RepositoryKind.local),  # substring, not host
-        ("https://github.com/owner/repo", RepositoryKind.github),
-        ("github.com/owner/repo", RepositoryKind.github),
-        ("git@github.com:owner/repo.git", RepositoryKind.github),
-    ],
-)
-def test_detect_source_matrix(source: str, expected: RepositoryKind) -> None:
-    assert RepositoryRegistry().detect_source(source) is expected

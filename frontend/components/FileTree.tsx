@@ -78,7 +78,6 @@ export function FileTree({
     [repoId],
   );
 
-  // Reset and (re)load the root whenever the repository changes.
   useEffect(() => {
     setDirs({});
     setExpanded(new Set());
@@ -215,11 +214,12 @@ function TreeRow({
       onClick={isDir ? onToggle : onOpen}
       title={entry.path}
       style={{ paddingLeft }}
-      className={`flex w-full items-center gap-1.5 rounded py-1 pr-2 text-left transition-colors ${
-        isActive
-          ? "bg-sky-950/70 text-sky-200"
-          : "text-zinc-300 hover:bg-zinc-800/60"
-      } ${clickable ? "" : "opacity-60"}`}
+      className={
+        "flex w-full items-center gap-1.5 rounded-btn py-1 pr-2 text-left transition-colors duration-200 " +
+        (isActive
+          ? "bg-violet-brand/15 text-violet-brand-soft shadow-[inset_2px_0_0_0_theme(colors.violet.brand)]"
+          : "text-zinc-300 hover:bg-slate-panel/60 hover:text-zinc-100")
+      }
     >
       {isDir ? (
         <>
@@ -229,9 +229,9 @@ function TreeRow({
             <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" aria-hidden />
           )}
           {isExpanded ? (
-            <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-sky-500" aria-hidden />
+            <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-violet-brand-soft" aria-hidden />
           ) : (
-            <Folder className="h-3.5 w-3.5 flex-shrink-0 text-sky-600" aria-hidden />
+            <Folder className="h-3.5 w-3.5 flex-shrink-0 text-cyan-brand" aria-hidden />
           )}
         </>
       ) : (

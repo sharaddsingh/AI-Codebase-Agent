@@ -34,7 +34,6 @@ export function ChatPanel({
   const timedOutRef = useRef(false);
 
   useEffect(() => {
-    // Abort any in-flight stream if the component unmounts.
     return () => controllerRef.current?.abort();
   }, []);
 
@@ -104,8 +103,11 @@ export function ChatPanel({
   const showAnswer = !error && (result != null || (streaming && streamingAnswer !== ""));
 
   return (
-    <div className="flex h-full flex-col">
-      <form onSubmit={onSubmit} className="flex flex-shrink-0 flex-col gap-2 border-b border-zinc-800 p-3">
+    <div className="flex h-full flex-col bg-slate-base">
+      <form
+        onSubmit={onSubmit}
+        className="flex flex-shrink-0 flex-col gap-2 border-b border-slate-line p-3"
+      >
         <SectionLabel>Ask the agent</SectionLabel>
         <textarea
           value={question}
@@ -120,9 +122,9 @@ export function ChatPanel({
           placeholder={
             repoId
               ? "How does authentication work? Where is X used? Why might this return 401?"
-              : "Register and select a repository first."
+              : "Pick a repository on the left to begin."
           }
-          className="w-full resize-y rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-sky-600 focus:outline-none disabled:opacity-60"
+          className="w-full resize-y rounded-btn border border-slate-line bg-slate-raised px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-violet-brand focus:outline-none focus:ring-1 focus:ring-violet-brand/40 disabled:opacity-60"
         />
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-zinc-600">Ctrl/⌘ + Enter to send</span>
@@ -131,62 +133,48 @@ export function ChatPanel({
               Stop
             </Button>
           ) : (
-            <Button
+            <button
               type="submit"
               disabled={!canChat || question.trim() === ""}
-              icon={<Send className="h-3.5 w-3.5" />}
+              className="inline-flex items-center justify-center gap-1.5 rounded-btn bg-gradient-to-r from-violet-brand to-cyan-brand px-3 py-1.5 text-xs font-semibold text-white shadow-glow transition-all duration-200 hover:brightness-110 hover:shadow-elevated disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
             >
+              <Send className="h-3.5 w-3.5" aria-hidden />
               Send
-            </Button>
+            </button>
           )}
         </div>
-        {!modelConfigured ? (
-          <p className="rounded-md border border-amber-900 bg-amber-950/40 px-2.5 py-2 text-[11px] text-amber-300">
-            Chat is disabled: the backend has no model configured. Set{" "}
-            <code className="font-mono text-amber-200">ANTHROPIC_API_KEY</code> in the backend
-            environment and restart it.
-          </p>
-        ) : null}
       </form>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-auto p-3">
-        {events.length === 0 && !streaming && !error && !result ? (
-          <p className="text-xs text-zinc-600">
-            The agent&apos;s investigation steps, answer, and file citations will appear here.
-          </p>
-        ) : null}
-
+      <div className="min-h-0 flex-1 overflow-auto p-3">
         {timedOut ? (
-          <ErrorBanner
-            title="Request timed out"
-            message={`The agent did not finish within ${TIMEOUT_MS / 1000}s and was aborted.`}
-          />
+          <div className="mb-3 rounded-btn border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            The agent was stopped after the {Math.round(TIMEOUT_MS / 1000)}s timeout.
+          </div>
         ) : null}
         {stopped ? (
-          <ErrorBanner title="Stopped" message="You stopped the investigation before it finished." />
+          <div className="mb-3 rounded-btn border border-slate-line bg-slate-panel/60 px-3 py-2 text-[11px] text-zinc-400">
+            Stopped by user.
+          </div>
         ) : null}
-        {error ? <ErrorBanner title="Agent error" message={error} /> : null}
-
-        {events.length > 0 || streaming ? (
-          <div className="rounded-md border border-zinc-800 bg-zinc-900/30 p-3">
-            <SectionLabel>Activity</SectionLabel>
-            <div className="mt-2">
-              <ActivityTimeline events={events} streaming={streaming} />
-            </div>
+        {error ? (
+          <div className="mb-3">
+            <ErrorBanner title="Agent error" message={error} />
           </div>
         ) : null}
 
+        <ActivityTimeline events={events} streaming={streaming} />
+
         {showAnswer ? (
-          <div className="space-y-3">
+          <div className="mt-4 flex flex-col gap-3">
             <SectionLabel>Answer</SectionLabel>
-            <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3 text-sm leading-relaxed text-zinc-200">
+            <div className="rounded-card border border-slate-line bg-slate-panel/40 p-4 text-sm leading-relaxed text-zinc-200 animate-fade-in">
               <AnswerMarkdown text={result ? result.answer : streamingAnswer} />
               {streaming && !result ? <span className="ml-0.5 animate-pulse">▍</span> : null}
             </div>
             {result ? (
               <>
                 {result.budget_exhausted ? (
-                  <p className="rounded-md border border-amber-900 bg-amber-950/40 px-2.5 py-2 text-[11px] text-amber-300">
+                  <p className="rounded-btn border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
                     The agent stopped because its investigation budget was reached, so this
                     answer may be partial. Try narrowing the question or naming a specific file
                     or symbol.
@@ -246,7 +234,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
     i % 2 === 1 ? (
       <code
         key={`${keyBase}-c${i}`}
-        className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[0.85em] text-sky-300"
+        className="rounded bg-slate-base px-1 py-0.5 font-mono text-[0.85em] text-cyan-brand-soft"
       >
         {part}
       </code>
@@ -311,7 +299,7 @@ function AnswerMarkdown({ text }: { text: string }) {
           return (
             <pre
               key={`code-${idx}`}
-              className="overflow-auto rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs text-zinc-200"
+              className="overflow-auto rounded-btn border border-slate-line bg-slate-base p-3 font-mono text-xs text-zinc-200"
             >
               <code>{body.replace(/\n$/, "")}</code>
             </pre>

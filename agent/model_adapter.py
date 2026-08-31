@@ -149,6 +149,37 @@ def _create_accepts(client, param: str) -> bool:
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
+def _describe_anthropic_error(exc: BaseException, model: str, *, max_len: int = 480) -> str:
+    """Render a one-line, secret-free description of an SDK/transport error.
+
+    `str(exc)` for the common network/auth failures flattens to a near-empty
+    string ("Connection error.", "Unauthorized", "Not Found", ...) that gives the
+    user no way to tell what is actually wrong. This helper keeps the exception
+    class, the underlying OSError (which is where the real "firewall blocked
+    it" / "DNS failed" / "TLS handshake failed" lives), the model name, and the
+    request URL when the SDK exposes it — and explicitly drops anything that
+    could carry the `x-api-key` / Authorization header.
+    """
+
+    cls = type(exc).__name__
+    base = f"{cls}: {exc}"
+    request = getattr(exc, "request", None)
+    url = getattr(request, "url", None) if request is not None else None
+    if url is not None:
+        base = f"{base} (url={url})"
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) if response is not None else None
+    if status is not None:
+        base = f"{base} (status={status})"
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    if cause is not None and cause is not exc:
+        base = f"{base} [cause: {type(cause).__name__}: {cause}]"
+    base = f"{base} (model={model})"
+    if len(base) > max_len:
+        base = base[: max_len - 1].rstrip() + "…"
+    return base
+
+
 class AnthropicAdapter(ModelAdapter):
     """Claude (Anthropic) provider.
 
@@ -207,7 +238,7 @@ class AnthropicAdapter(ModelAdapter):
         try:
             resp = self._client.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 - normalize any SDK error
-            raise ModelCallError(str(exc)) from exc
+            raise ModelCallError(_describe_anthropic_error(exc, self.model)) from exc
 
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []

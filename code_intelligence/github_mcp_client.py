@@ -36,9 +36,10 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import TextContent
+
+from mcp import Client
 
 from .errors import (
     CodeIntelError,
@@ -327,7 +328,7 @@ class GitHubMCPClient:
         finally:
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception:  # noqa: BLE001 - best-effort cleanup
+            except Exception:  # noqa: S110 - best-effort cleanup
                 pass
             loop.close()
             self._loop = None
@@ -414,6 +415,33 @@ def _flatten(exc: BaseException) -> list[BaseException]:
     return [exc]
 
 
+def _sanitize_excerpt(exc: BaseException, *, max_len: int = 280) -> str:
+    """One-line, secret-free description of an exception for inclusion in user
+    messages.
+
+    `str(exc)` collapses most network and SDK failures to a near-empty string
+    ("Connection error.", "Not Found", ...) that gives the user no way to
+    distinguish "firewall blocked us" from "DNS failed" from "TLS handshake
+    failed" from "auth rejected". This helper keeps the exception class, the
+    message, and the underlying OSError (which is where the real signal lives
+    for ConnectError / TimeoutError). It deliberately drops anything that
+    could carry a bearer token or response body.
+    """
+
+    parts: list[str] = [f"{type(exc).__name__}: {exc}"]
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    if cause is not None and cause is not exc:
+        parts.append(f"cause: {type(cause).__name__}: {cause}")
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) if response is not None else None
+    if status is not None:
+        parts.append(f"status={status}")
+    excerpt = " | ".join(parts)
+    if len(excerpt) > max_len:
+        excerpt = excerpt[: max_len - 1].rstrip() + "…"
+    return excerpt
+
+
 def _as_public_error(
     exc: BaseException, *, context: str, tool: str | None = None
 ) -> CodeIntelError:
@@ -422,13 +450,21 @@ def _as_public_error(
         if isinstance(e, CodeIntelError):
             return e
     blob = " ; ".join(f"{type(e).__name__}: {e}" for e in leaves).lower()
+    excerpt = _sanitize_excerpt(exc)
     if any(s in blob for s in ("401", "unauthorized", "bad credentials", "authentication", "403", "forbidden")):
-        return GitHubMCPAuthError(_AUTH_MSG)
+        return GitHubMCPAuthError(f"{_AUTH_MSG}\n\nUnderlying error: {excerpt}")
     if context == "connect":
+        # The token rarely matters here: when the transport never gets past
+        # TCP/TLS the request never reaches auth. Surface the real reason so
+        # the user can tell a firewall/VPN block from a bad endpoint.
         return GitHubMCPConnectionError(
-            "Could not connect to the GitHub MCP server. Check network access and "
-            "that GITHUB_TOKEN is set."
+            "Could not reach the GitHub MCP server. This usually means the host "
+            "cannot connect to the configured endpoint (firewall, VPN, proxy, "
+            "or DNS), not a bad GITHUB_TOKEN — verify outbound HTTPS to the "
+            "endpoint is allowed from this machine.\n\n"
+            f"Underlying error: {excerpt}"
         )
     return GitHubMCPToolError(
-        f"The GitHub MCP tool {tool!r} failed." if tool else "A GitHub MCP call failed."
+        f"The GitHub MCP tool {tool!r} failed.\n\nUnderlying error: {excerpt}"
+        if tool else f"A GitHub MCP call failed.\n\nUnderlying error: {excerpt}"
     )

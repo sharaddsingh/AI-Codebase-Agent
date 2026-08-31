@@ -1,0 +1,51 @@
+# Render Blueprint for AI Codebase Agent.
+#
+# `render blueprint launch` (or apply via the Render dashboard) to deploy.
+# Set the environment group's secret vars (ANTHROPIC_API_KEY, GITHUB_TOKEN)
+# before the first deploy.
+
+services:
+  - type: web
+    name: ai-codebase-agent
+    runtime: docker
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/health
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: MODEL_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5
+      - key: AGENT_TEMPERATURE
+        value: "0.0"
+      - key: AGENT_MAX_TOOL_CALLS
+        value: "20"
+      - key: AGENT_MAX_SECONDS
+        value: "150"
+      - key: AGENT_MAX_FILES
+        value: "20"
+      - key: AGENT_MAX_CONTEXT_BYTES
+        value: "300000"
+      - key: AGENT_MAX_STEPS
+        value: "24"
+      - key: UPLOAD_ROOT
+        value: /var/data/uploaded_repos
+      - key: GITHUB_MCP_URL
+        value: https://api.githubcopilot.com/mcp/readonly
+      - key: GITHUB_MCP_TIMEOUT
+        value: "30"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: CORS_ORIGINS
+        sync: false   # set in the dashboard to your Render URL + any extra origins
+      - key: ANTHROPIC_API_KEY
+        sync: false   # secret
+      - key: GITHUB_TOKEN
+        sync: false   # secret
+    disk:
+      name: uploads
+      mountPath: /var/data/uploaded_repos
+      sizeGB: 1

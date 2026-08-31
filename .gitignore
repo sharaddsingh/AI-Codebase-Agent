@@ -29,7 +29,20 @@ frontend/build/
 *.tsbuildinfo
 next-env.d.ts
 
-# ---- Generated artifacts / runtime ----
+# ---- Runtime / uploads ----
+# Local upload root is git-ignored; production deployments must mount a
+# persistent volume at the path the UPLOAD_ROOT env var points to.
+uploaded_repos/
+
+# Static frontend build served by the backend at "/" (STATIC_DIR). Produced by
+# the Dockerfile in the image; locally it is just a copy of frontend/out used to
+# exercise the production single-process layout.
+/static/
+
+# Local pytest basetemp (used when the system temp dir is not writable).
+.pytest-tmp/
+
+# ---- Generated artifacts ----
 *.log
 logs/
 data/

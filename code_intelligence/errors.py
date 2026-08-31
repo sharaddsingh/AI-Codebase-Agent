@@ -76,6 +76,19 @@ class RegistrationError(CodeIntelError):
     http_status = 400
 
 
+class UploadTooLargeError(CodeIntelError):
+    """A browser upload declared or exceeded more bytes than the server accepts.
+
+    Distinct from :class:`FileTooLargeError`, which is about reading one file
+    out of a repository. This one is about the whole multipart body, and is
+    raised from the declared ``Content-Length`` before the body is read so an
+    oversized folder is refused up front instead of after being buffered.
+    """
+
+    code = "upload_too_large"
+    http_status = 413
+
+
 class NotSupportedError(CodeIntelError):
     """A capability that is intentionally deferred to a later phase.
 

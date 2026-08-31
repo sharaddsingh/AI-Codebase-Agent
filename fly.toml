@@ -1,0 +1,53 @@
+# Fly.io app manifest for AI Codebase Agent.
+#
+# Usage:
+#   fly launch --copy-config   # one-time, picks a region and a name
+#   fly secrets set ANTHROPIC_API_KEY=... GITHUB_TOKEN=...
+#   fly deploy
+
+app = "ai-codebase-agent"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MODEL_PROVIDER = "anthropic"
+  ANTHROPIC_MODEL = "claude-opus-5"
+  AGENT_TEMPERATURE = "0.0"
+  AGENT_MAX_TOOL_CALLS = "20"
+  AGENT_MAX_SECONDS = "150"
+  AGENT_MAX_FILES = "20"
+  AGENT_MAX_CONTEXT_BYTES = "300000"
+  AGENT_MAX_STEPS = "24"
+  UPLOAD_ROOT = "/data/uploaded_repos"
+  GITHUB_MCP_URL = "https://api.githubcopilot.com/mcp/readonly"
+  GITHUB_MCP_TIMEOUT = "30"
+  LOG_LEVEL = "INFO"
+  # CORS_ORIGINS — set per-deploy to include https://<app>.fly.dev and any
+  # additional origins the frontend may be served from.
+  CORS_ORIGINS = ""
+
+[[mounts]]
+  source = "uploads"
+  destination = "/data/uploaded_repos"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.checks]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

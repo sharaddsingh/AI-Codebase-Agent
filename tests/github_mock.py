@@ -121,10 +121,15 @@ class FakeGitHubMCPClient:
     Stateless with respect to owner/repo — those arrive as tool *arguments*, so a
     single instance serves every registered GitHub repo, exactly like the real
     shared session. ``repo_status=404`` simulates an unknown/empty repository.
+    ``commit_date`` controls the head commit's date field: ``None`` omits the
+    ``commit`` block entirely, and a non-ISO string simulates an unparsable one.
     """
 
-    def __init__(self, *, repo_status: int = 200) -> None:
+    def __init__(
+        self, *, repo_status: int = 200, commit_date: str | None = _HEAD_DATE
+    ) -> None:
         self._repo_status = repo_status
+        self._commit_date = commit_date
         self._connected = False
         self._closed = False
 
@@ -163,10 +168,12 @@ class FakeGitHubMCPClient:
             # No commits -> the adapter raises GitHubRepoNotFoundError, the real
             # "repository not found" path, with no network involved.
             return _text_result("list_commits", [])
-        commit = {
-            "sha": _HEAD_SHA,
-            "commit": {"committer": {"date": _HEAD_DATE}, "author": {"date": _HEAD_DATE}},
-        }
+        commit: dict[str, Any] = {"sha": _HEAD_SHA}
+        if self._commit_date is not None:
+            commit["commit"] = {
+                "committer": {"date": self._commit_date},
+                "author": {"date": self._commit_date},
+            }
         return _text_result("list_commits", [commit])
 
     def _repository_tree(self) -> MCPToolResult:
@@ -200,11 +207,15 @@ class FakeGitHubMCPClient:
         return f"<FakeGitHubMCPClient repo_status={self._repo_status} connected={self._connected}>"
 
 
-def mock_client(*, repo_status: int = 200) -> FakeGitHubMCPClient:
+def mock_client(
+    *, repo_status: int = 200, commit_date: str | None = _HEAD_DATE
+) -> FakeGitHubMCPClient:
     """Return an in-process fake GitHub MCP client.
 
     ``repo_status=404`` simulates a repository with no accessible commits so the
     adapter takes its real not-found path; the default serves the canned repo.
+    ``commit_date=None`` (or a non-ISO string) yields a head commit whose date
+    cannot be parsed, which the adapter must still produce metadata for.
     """
 
-    return FakeGitHubMCPClient(repo_status=repo_status)
+    return FakeGitHubMCPClient(repo_status=repo_status, commit_date=commit_date)

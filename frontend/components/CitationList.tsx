@@ -16,7 +16,7 @@ export function CitationList({
   if (unique.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 animate-fade-in">
       <SectionLabel>Citations ({unique.length})</SectionLabel>
       <div className="flex flex-wrap gap-1.5">
         {unique.map((c, i) => (
@@ -25,10 +25,11 @@ export function CitationList({
             type="button"
             onClick={() => onOpen(c)}
             title={`${c.path}${c.snapshot_id ? ` @ ${c.snapshot_id}` : ""}`}
-            className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-sky-600 hover:bg-sky-950/40 hover:text-sky-200"
+            style={{ animationDelay: `${i * 40}ms` }}
+            className="inline-flex max-w-full animate-chip-in items-center gap-1.5 rounded-full border border-slate-line bg-slate-panel/80 px-2.5 py-1 font-mono text-[11px] text-zinc-300 transition-all duration-200 hover:-translate-y-0.5 hover:border-violet-brand/60 hover:bg-violet-brand/10 hover:text-violet-brand-soft hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-brand focus-visible:ring-offset-1 focus-visible:ring-offset-slate-base"
           >
-            <FileText className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" aria-hidden />
-            <span className="truncate font-mono">
+            <FileText className="h-3 w-3 flex-shrink-0 text-zinc-500" aria-hidden />
+            <span className="truncate">
               {basename(c.path)}
               <span className="text-zinc-500">:{formatLineRange(c.start_line, c.end_line)}</span>
             </span>

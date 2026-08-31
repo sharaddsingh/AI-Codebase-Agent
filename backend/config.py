@@ -7,8 +7,6 @@ ever read server-side.
 
 from __future__ import annotations
 
-import os
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agent.budget import Budget
@@ -37,13 +35,23 @@ class Settings(BaseSettings):
     agent_max_context_bytes: int = 300_000
     agent_max_steps: int = 24
 
-    # -- repository access ------------------------------------------------
-    # os.pathsep-separated allow-list. Empty => unrestricted (dev convenience);
-    # a warning is logged at startup when unrestricted.
-    allowed_repo_roots: str = ""
-    respect_gitignore: bool = True
-    # Optional path auto-registered at startup (handy for demos, e.g. the fixture).
-    default_repo_path: str = ""
+    # -- upload (browser-supplied folders) --------------------------------
+    # Where the upload pipeline writes files. The directory is created on
+    # first upload and contains one subdirectory per uploaded repo. Cleaning
+    # up an uploaded repo also wipes its subdirectory here.
+    #
+    # Uploads registered here are re-registered on startup (deps.rehydrate_uploads)
+    # so a restart — a code edit under --reload, a redeploy — does not leave the
+    # frontend holding ids the backend has forgotten.
+    upload_root: str = "./uploaded_repos"
+
+    # Caps for a single upload; see backend.uploaded_repos.UploadLimits.
+    # File count is the limit real projects hit, so it is generous. Total bytes
+    # is the memory guard (the multipart parser buffers parts before they are
+    # written), so raise it only on a host with the RAM to match.
+    upload_max_files: int = 20_000
+    upload_max_file_mb: int = 10
+    upload_max_total_mb: int = 100
 
     # -- GitHub access via the official GitHub MCP server (read-only) -----
     # GitHub repositories are investigated through the official GitHub MCP
@@ -67,16 +75,6 @@ class Settings(BaseSettings):
         if self.model_provider == "mock":
             return True
         return bool(self.anthropic_api_key)
-
-    def allowed_roots_list(self) -> list[str] | None:
-        raw = self.allowed_repo_roots.strip()
-        if not raw:
-            return None
-        return [
-            os.path.realpath(os.path.expanduser(p))
-            for p in raw.split(os.pathsep)
-            if p.strip()
-        ]
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

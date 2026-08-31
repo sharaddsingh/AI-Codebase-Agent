@@ -22,5 +22,4 @@ def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
             else settings.model_provider
         ),
         repositories=len(get_registry().list()),
-        unrestricted_roots=settings.allowed_roots_list() is None,
     )

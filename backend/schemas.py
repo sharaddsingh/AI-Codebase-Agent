@@ -10,12 +10,12 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class RegisterRepoRequest(BaseModel):
-    path: str = Field(
+class GitHubRegisterRequest(BaseModel):
+    url: str = Field(
         ...,
         description=(
-            "Local filesystem path to a repository root, or a GitHub repository "
-            "URL (e.g. https://github.com/owner/repo). The source is auto-detected."
+            "GitHub repository URL, e.g. https://github.com/owner/repo. "
+            "Branch / file / subpath links are rejected — pass the repo root."
         ),
     )
     name: str | None = Field(None, description="Optional display name.")
@@ -32,7 +32,6 @@ class HealthResponse(BaseModel):
     model_configured: bool          # never the key itself — only whether one is set
     model: str
     repositories: int
-    unrestricted_roots: bool
 
 
 class ErrorBody(BaseModel):

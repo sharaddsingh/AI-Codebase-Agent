@@ -1,610 +1,222 @@
-# AI Codebase Engineering Agent
- 
-A web-based, read-only AI agent that investigates software repositories and answers codebase questions with file and line citations.
- 
-The agent can investigate:
-- Local repositories available to the backend
-- GitHub repositories through the official remote GitHub MCP server
- 
-Instead of sending an entire codebase to an LLM, the agent plans an investigation, searches for relevant evidence, reads only the required files, evaluates the evidence, and produces a cited answer.
- 
-The system is built around a bounded Plan → Act → Observe → Evaluate → Answer workflow with strict limits on tool calls, execution time, files read, context size, and investigation steps.
- 
+# AI Codebase Agent
+
+A web-based, read-only AI agent that investigates codebases and answers questions with file and line citations. Two ways to bring your code: **upload a folder from your browser**, or **point it at a public GitHub repo**. That's it — no path-input, no server-side filesystem permissions, no shared mounts.
+
+Instead of sending an entire codebase to an LLM, the agent plans an investigation, searches for relevant evidence, reads only the files it needs, evaluates what it found, and produces a cited answer. Everything is bounded: tool calls, time, files read, and steps.
+
 ---
- 
-## ✨ Key Features
- 
-- Bounded AI codebase investigation agent
-- Local repository analysis
-- GitHub repository analysis
-- Official remote GitHub MCP integration
-- Lexical code search
-- Selective file reading
-- Natural-language codebase questions
-- File and line citations
-- Real-time agent activity through SSE
-- Strict agent execution budgets
-- Read-only repository investigation
-- Citation validation
-- FastAPI backend
-- Next.js 14 + TypeScript frontend
-- Standalone local MCP server
-- Unified repository abstraction for local and GitHub sources
- 
+
+## Highlights
+
+- **Browser folder upload** — pick or drop a folder; the browser streams it straight to the backend. No filesystem access for the server beyond what you sent it.
+- **GitHub via official MCP** — paste a `https://github.com/owner/repo` URL and the agent reads it over the read-only remote GitHub MCP server. No clones.
+- **Plan → Act → Observe → Answer** with strict execution budgets.
+- **Cited answers** — every claim links back to a file and line range, with one click to jump there.
+- **Modern UI** — animated header orb, repository cards with 3D hover tilt, drag-drop upload modal, citation beams across the highlighted line, and a vertical activity rail.
+
 ---
- 
-# 🚀 Local Setup
- 
-## Prerequisites
- 
+
+## Quick start
+
+### Prerequisites
 - Python 3.10+
 - Node.js 18+
 - npm
-- Git
-- Optional: ripgrep
- 
-Developed with Python 3.13 and Node.js 22.
- 
-## 1. Clone the Repository
- 
+
+### 1. Clone and install
+
 ```bash
-git clone https://github.com/sharaddsingh/AI-Codebase-Agent.git
-cd AI-Codebase-Agent
-```
- 
-## 2. Create a Python Virtual Environment
- 
-### Windows
- 
-```powershell
+git clone https://github.com/example/ai-codebase-agent.git
+cd ai-codebase-agent
 python -m venv .venv
-.venv\Scripts\activate
-```
- 
-### macOS / Linux
- 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
- 
-## 3. Install Backend Dependencies
- 
-```bash
+.venv\Scripts\activate          # Windows
+source .venv/bin/activate       # macOS / Linux
 pip install -r requirements.txt
+pip install -r requirements-dev.txt   # tests + linters
+cd frontend && npm install && cd ..
 ```
- 
-For development and testing:
- 
-```bash
-pip install -r requirements-dev.txt
-```
- 
-## 4. Configure Environment Variables
- 
-### Windows PowerShell
- 
-```powershell
-Copy-Item .env.example .env
-```
- 
-### macOS / Linux
- 
+
+### 2. Configure
+
 ```bash
 cp .env.example .env
 ```
- 
-Edit `.env` and configure your model credentials.
- 
-Example:
- 
+
+Edit `.env`. The two values that matter most:
+
 ```env
 MODEL_PROVIDER=anthropic
-ANTHROPIC_API_KEY=your_api_key_here
+ANTHROPIC_API_KEY=sk-ant-...
+GITHUB_TOKEN=ghp_...           # required for GitHub repos via MCP
 ```
- 
-If your current setup uses AgentRouter, configure the AgentRouter base URL and credentials expected by the implementation.
- 
-Configure the credentials required by the remote GitHub MCP integration.
- 
-Never commit `.env` or expose secrets through `NEXT_PUBLIC_*` variables.
- 
-## 5. Install Frontend Dependencies
- 
+
+`MODEL_PROVIDER=mock` runs without any API key and gives you a deterministic scripted agent for demos.
+
+### 3. Run
+
+Two terminals:
+
 ```bash
-cd frontend
-npm install
-cd ..
-```
- 
-For local development:
- 
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-```
- 
-Place this in `frontend/.env.local`.
- 
-## 6. Start the Backend
- 
-From the project root:
- 
-```bash
-python -m uvicorn backend.main:app --reload --port 8000
-```
- 
-Backend: `http://localhost:8000`
- 
-API docs: `http://localhost:8000/docs`
- 
-Health check: `http://localhost:8000/api/health`
- 
-## 7. Start the Frontend
- 
-Open a second terminal:
- 
-```bash
+# Terminal 1: backend (http://localhost:8000)
+# The --reload-dir flags keep the watcher off ./uploaded_repos/ — otherwise
+# uploading a Python project restarts the server and clears the registry.
+python -m uvicorn backend.main:app --reload --reload-dir backend --reload-dir agent --reload-dir retrieval --reload-dir code_intelligence --port 8000
+
+# Terminal 2: frontend (http://localhost:3000)
 cd frontend
 npm run dev
 ```
- 
-Frontend: `http://localhost:3000`
- 
-Open `http://localhost:3000`.
- 
+
+Open `http://localhost:3000`. Click **Upload** to drop a folder, or click **GitHub** and paste a URL like `facebook/react`.
+
 ---
- 
-# 🧪 Quick Test
- 
-1. Register a local repository using an absolute path.
-2. Or register a GitHub repository using a GitHub URL.
-3. Browse the repository tree.
-4. Ask a question such as:
- 
-```text
-How does authentication work?
-```
- 
-or:
- 
-```text
-Where is theme switching implemented?
-```
- 
-The agent should investigate the repository and return an evidence-backed answer with file/line citations.
- 
+
+## How to use
+
+1. Add a repo: drop a folder into the upload modal, or paste a GitHub URL in the GitHub form.
+2. Browse the file tree in the left rail.
+3. Open a file, or click a citation in an answer to jump to the cited line.
+4. Ask a question in the chat panel:
+
+   ```text
+   How does authentication work?
+   Where is theme switching implemented?
+   Why might this endpoint return 401?
+   ```
+
+5. Watch the activity rail on the right as the agent investigates.
+6. Click any citation chip to open the cited file/line range with a beam-flash highlight.
+
 ---
- 
-# 🏗️ Architecture
- 
-```text
-                        AI Codebase Agent
-                               |
-                               v
-                        FastAPI Backend
-                               |
-                               v
-                        Agent Orchestrator
-                               |
-                +--------------+--------------+
-                |                             |
-                v                             v
-       Local Repository                GitHub Repository
-                |                             |
-                v                             v
-       Local Filesystem                GitHub MCP Client
-                                             |
-                                             v
-                                 Remote GitHub MCP Server
-                                             |
-                                             v
-                                          GitHub
+
+## Architecture
+
 ```
- 
+                    Browser (Next.js + WebGL)
+                              |
+                              v
+                       FastAPI Backend
+                              |
+                              v
+                  Repository Registry
+                       /           \
+                      v             v
+        Upload Pipeline          GitHub MCP Client
+             |                          |
+             v                          v
+      Local Filesystem         Remote GitHub MCP Server
+       (uploaded_repos/)        (api.githubcopilot.com)
+                                          |
+                                          v
+                                       GitHub
+```
+
+- **Upload pipeline** — every file is written to `./uploaded_repos/<repo_id>/` after containment + size + ignore-dir checks. The directory is wiped when the repo is removed.
+- **GitHub MCP** — the official remote MCP server at `api.githubcopilot.com/mcp/readonly` over Streamable HTTP, authenticated with a server-side PAT. The token never reaches the browser.
+
 ---
- 
-# 🔄 Agent Workflow
- 
-```text
-User Question
-    |
-    v
-Task Classification
-    |
-    v
-Investigation Planning
-    |
-    v
-Tool Selection
-    |
-    v
-Read-only Tool Call
-    |
-    v
-Observation
-    |
-    v
-Budget Evaluation
-    |
-    +---------- Continue ----------+
-    |                              |
-    |                              v
-    |                        More Evidence
-    |                              |
-    +------------------------------+
-    |
-    v
-Finalization
-    |
-    v
-Citation Validation
-    |
-    v
-Evidence-backed Answer
-```
- 
-The agent selectively searches and reads relevant repository evidence rather than blindly sending the whole codebase to the model.
- 
----
- 
-# 🔌 GitHub MCP Integration
- 
-GitHub repository investigation uses the official remote GitHub MCP server.
- 
-```text
-AI Codebase Agent
-      |
-      v
-GitHub MCP Client
-      |
-      v
-api.githubcopilot.com/mcp/readonly
-      |
-      v
-Official GitHub MCP Server
-      |
-      v
-GitHub
-```
- 
-The GitHub MCP integration is read-only.
- 
-The agent uses MCP tools to retrieve repository information and source code.
- 
----
- 
-# 📂 Local Repository Mode
- 
-Local repositories are investigated through the local repository engine.
- 
-```text
-Frontend
-   |
-   v
-FastAPI Backend
-   |
-   v
-Local Repository Engine
-   |
-   v
-Filesystem
-```
- 
-The backend can access a local repository because it is running on the same machine as that repository.
- 
-## Cloud Limitation
- 
-A cloud-hosted backend cannot directly access arbitrary folders on a user's personal computer.
- 
-Therefore:
- 
-Local development:
-- Local repositories ✅
-- GitHub repositories ✅
- 
-Cloud deployment:
-- GitHub repositories ✅
-- User's local filesystem ❌ without an additional local companion/agent
- 
----
- 
-# 🤖 Agent Components
- 
-```text
-agent/
-├── model adapter
-├── task classifier
-├── tools
-├── bounded agent loop
-├── budget tracking
-├── observation handling
-└── citation validation
-```
- 
-The agent gathers evidence incrementally instead of sending the entire repository to the model.
- 
----
- 
-# 💰 Agent Budgets
- 
-Default configuration:
- 
-```env
-AGENT_MAX_TOOL_CALLS=12
-AGENT_MAX_SECONDS=90
-AGENT_MAX_FILES=20
-AGENT_MAX_CONTEXT_BYTES=200000
-AGENT_MAX_STEPS=16
-```
- 
-These limits prevent runaway loops, excessive model usage, excessive repository reads, unnecessarily large context, and uncontrolled investigation time.
- 
-When a budget is reached, the agent stops gathering evidence and attempts to finalize using the evidence already collected.
- 
----
- 
-# 🔎 Retrieval
- 
-The current retrieval engine uses lexical search.
- 
-It supports:
-- ripgrep when available
-- pure-Python fallback when ripgrep is unavailable
- 
-Future retrieval improvements can include embeddings, semantic search, reranking, and hybrid retrieval.
- 
----
- 
-# 📚 Repository Abstraction
- 
-Repository access is exposed through a source-independent interface.
- 
-Supported operations include:
-- list files
-- read file
-- search repository
-- get file metadata
- 
-The repository implementation determines whether the source is `LOCAL` or `GITHUB`.
- 
----
- 
-# 📌 Citation System
- 
-The agent produces file and line citations based on evidence actually retrieved.
- 
-Example:
- 
-```text
-frontend/components/ThemeToggle.tsx:5-63
-```
- 
-The frontend can use citations to navigate to the referenced file and line range.
- 
-Citation validation helps prevent the agent from claiming evidence from files it did not retrieve.
- 
----
- 
-# 🖥️ Frontend
- 
-The frontend is built with:
-- Next.js 14
-- TypeScript
-- React
- 
-The interface provides:
-- local repository registration
-- GitHub repository registration
-- repository source detection
-- repository switching
-- repository removal from application state
-- file tree navigation
-- code viewer
-- open-file tabs
-- file closing
-- agent chat
-- live investigation activity
-- clickable file citations
-- citation-driven file navigation
- 
----
- 
-# 🔐 Security
- 
-Security is a core part of the project.
- 
-## Read-only Repository Access
- 
-The investigation workflow is designed around read-only repository operations.
- 
-## Local Path Containment
- 
-Local repository paths are validated according to the configured repository-root policy.
- 
-## Untrusted Repository Content
- 
-Repository content is treated as untrusted input and must not be treated as trusted system instructions.
- 
-## Server-side Secrets
- 
-Credentials remain server-side.
- 
-Never expose:
- 
-```text
-ANTHROPIC_API_KEY
-GITHUB_TOKEN
-```
- 
-through frontend code or `NEXT_PUBLIC_*` variables.
- 
-## Citation Validation
- 
-The agent can only cite evidence retrieved during the current investigation.
- 
-## Execution Budgets
- 
-The agent is bounded by tool calls, elapsed time, files read, context size, and investigation steps.
- 
-See `docs/SECURITY.md` for details.
- 
----
- 
-# 🧩 MCP Components
- 
-## Standalone Local MCP Server
- 
-Located at:
- 
-```text
-mcp/server.py
-```
- 
-Uses the official MCP SDK and exposes local repository capabilities to external MCP clients.
- 
-Run:
- 
-```bash
-python mcp/server.py
-```
- 
-This is separate from the normal browser workflow.
- 
-## Remote GitHub MCP
- 
-The browser-based agent uses the remote GitHub MCP integration for GitHub repositories.
- 
-```text
-Agent
- |
- v
-MCP Client
- |
- v
-Remote GitHub MCP
- |
- v
-GitHub
-```
- 
----
- 
-# 🧪 Testing
- 
-## Python Tests
- 
-```bash
-python -m pytest
-```
- 
-## Python Lint
- 
-```bash
-python -m ruff check .
-```
- 
-## Python Type Checking
- 
-```bash
-python -m mypy code_intelligence retrieval agent backend
-```
- 
-## Frontend Tests
- 
-```bash
-cd frontend
-npm test
-```
- 
-## Frontend Lint
- 
-```bash
-npm run lint
-```
- 
-## Frontend Production Build
- 
-```bash
-npm run build
-```
- 
----
- 
-# ⚙️ Environment Variables
- 
+
+## Configuration reference
+
 | Variable | Default | Purpose |
 |---|---|---|
-| `MODEL_PROVIDER` | `anthropic` | Model provider or deterministic mock |
+| `MODEL_PROVIDER` | `anthropic` | `anthropic` or `mock` (no key needed) |
 | `ANTHROPIC_API_KEY` | — | Server-side model credential |
 | `ANTHROPIC_MODEL` | `claude-opus-5` | Model identifier |
-| `ANTHROPIC_MAX_TOKENS` | `4096` | Maximum model response tokens |
-| `ANTHROPIC_BASE_URL` | — | Model API base URL override |
-| `AGENT_MAX_TOOL_CALLS` | `12` | Maximum tool calls per question |
-| `AGENT_MAX_SECONDS` | `90` | Maximum investigation time |
-| `AGENT_MAX_FILES` | `20` | Maximum files read |
-| `AGENT_MAX_CONTEXT_BYTES` | `200000` | Maximum model context/tool output |
-| `AGENT_MAX_STEPS` | `16` | Maximum investigation steps |
-| `ALLOWED_REPO_ROOTS` | empty | Allowed local repository roots |
-| `RESPECT_GITIGNORE` | `true` | Honor repository `.gitignore` |
-| `DEFAULT_REPO_PATH` | empty | Optional local repository |
-| `GITHUB_TOKEN` | empty | GitHub authentication where required |
-| `GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub API base URL where applicable |
+| `ANTHROPIC_MAX_TOKENS` | `4096` | Cap on each model response |
+| `ANTHROPIC_BASE_URL` | — | Override the API base URL |
+| `AGENT_MAX_TOOL_CALLS` | `20` | Bound on tool calls per question |
+| `AGENT_MAX_SECONDS` | `150` | Bound on total investigation time |
+| `AGENT_MAX_FILES` | `20` | Bound on files read |
+| `AGENT_MAX_CONTEXT_BYTES` | `300000` | Bound on context bytes |
+| `AGENT_MAX_STEPS` | `24` | Bound on agent loop iterations |
+| `UPLOAD_ROOT` | `./uploaded_repos` | Where browser-uploaded folders land |
+| `GITHUB_TOKEN` | — | Required for the GitHub MCP integration |
+| `GITHUB_MCP_URL` | `https://api.githubcopilot.com/mcp/readonly` | GitHub MCP server endpoint |
 | `LOG_LEVEL` | `INFO` | Backend logging level |
-| `CORS_ORIGINS` | `http://localhost:3000` | Allowed frontend origins |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Backend URL exposed to browser |
-| `MCP_ALLOWED_ROOTS` | empty | Allowed roots for standalone local MCP server |
- 
+| `CORS_ORIGINS` | `http://localhost:3000` | Frontend origins allowed by CORS |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Where the browser reaches the backend |
+
+`GITHUB_TOKEN` is required for GitHub repositories — the official MCP server mandates it even for public repos.
+
 ---
- 
-# 📁 Project Structure
- 
-```text
+
+## Deployment
+
+The backend is a single FastAPI process; the frontend is a Next.js static build that the backend can serve. Three deployment targets are supported:
+
+### Single Docker image
+
+```bash
+docker build -t ai-codebase-agent .
+docker run -p 8000:8000 \
+  -e ANTHROPIC_API_KEY \
+  -e GITHUB_TOKEN \
+  -v ai-codebase-agent-uploads:/app/uploaded_repos \
+  ai-codebase-agent
+```
+
+The image boots uvicorn and serves the prebuilt frontend at the same origin. Persistent volume for `UPLOAD_ROOT` is required for uploads to survive restarts.
+
+### Render
+
+Click the deploy button or use the included `render.yaml` Blueprint. Set `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` in the dashboard's environment group.
+
+### Fly.io
+
+`fly launch --copy-config` then `fly deploy`. The included `fly.toml` sets up a single-region app with a 1 GB persistent volume for uploads.
+
+See [docs/DEPLOY.md](docs/DEPLOY.md) for the full guide.
+
+---
+
+## Testing
+
+```bash
+# Backend
+python -m pytest
+python -m ruff check .
+
+# Frontend
+cd frontend
+npx tsc --noEmit
+npm run lint
+```
+
+---
+
+## Security
+
+- Every upload is contained inside `UPLOAD_ROOT` with strict per-path validation (no `..`, no absolute, no symlinks, ignore-dir deny-list for `.git`, `node_modules`, build output).
+- Hard caps on total bytes, per-file bytes, and file count per upload.
+- Removing an uploaded repo wipes its on-disk directory.
+- GitHub integration is read-only over the MCP — the backend cannot mutate the remote.
+- All secrets (`ANTHROPIC_API_KEY`, `GITHUB_TOKEN`) live only in server env vars and never appear in responses, citations, logs, or errors.
+- Repository content is treated as untrusted input; the agent's renderer never executes HTML.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model.
+
+---
+
+## Project structure
+
+```
 ai-codebase-agent/
-│
-├── agent/
-│   ├── model adapter
-│   ├── classifier
-│   ├── tools
-│   ├── bounded agent loop
-│   ├── budgets
-│   └── citation validation
-│
-├── backend/
-│   ├── FastAPI application
-│   ├── repository APIs
-│   ├── file APIs
-│   ├── search APIs
-│   └── agent SSE
-│
-├── code_intelligence/
-│   ├── repository interface
-│   ├── local repository engine
-│   ├── GitHub MCP integration
-│   └── repository registry
-│
-├── retrieval/
-│   └── lexical retrieval
-│
-├── mcp/
-│   └── standalone local MCP server
-│
-├── frontend/
-│   └── Next.js application
-│
-├── tests/
-│   ├── Python test suite
-│   └── fixture repositories
-│
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── SECURITY.md
-│   ├── MCP.md
-│   └── ROADMAP.md
-│
-├── docker/
-│   └── deployment scaffolding
-│
-├── .env.example
-├── requirements.txt
-├── requirements-dev.txt
-└
+  backend/            FastAPI app, routers, schemas, config, deps
+  code_intelligence/  Repository abstraction (local + GitHub), registry
+  retrieval/          Lexical search engine (ripgrep / pure-python)
+  agent/              Bounded agent loop, tools, budgets
+  mcp/                Standalone MCP server for repo tools
+  frontend/           Next.js 14 + TypeScript + Tailwind
+  tests/              pytest suite (repos are built in tmp dirs, no checked-in fixtures)
+  docs/               Architecture, security, deployment, MCP
+  Dockerfile          Multi-stage build (frontend + backend)
+  render.yaml         Render Blueprint
+  fly.toml            Fly.io app manifest
+```
+
+---
+
+## License
+
+See [LICENSE](LICENSE).

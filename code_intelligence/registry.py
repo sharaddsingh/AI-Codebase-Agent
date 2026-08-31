@@ -1,27 +1,22 @@
 """In-memory registry of authorized repositories.
 
-For the MVP the registry lives in the backend process (no database).  It is the
-single place that decides *what* may be registered and *how*: it auto-detects
-whether a registration string is a local filesystem path or a GitHub URL
-(:meth:`RepositoryRegistry.register`), routes it to the matching adapter, and
-hands out :class:`RepositoryInterface` instances by id to the rest of the
-system.  Local registration may be constrained to a configured allow-list of
-roots; that allow-list is a *filesystem* control and does not apply to GitHub
-(which never touches disk).
+The registry is the single place that decides *what* may be registered and
+*how*: each kind (browser upload, GitHub) has its own :meth:`register_<kind>`
+method so the API layer can pick the right one explicitly. Local repositories
+never come from a user-supplied filesystem path — they always arrive via the
+upload flow (:mod:`backend.uploaded_repos`) which already enforced the
+containment, ignore-dir, and size guards before persisting anything. GitHub
+repositories never touch disk; they are read over the official GitHub MCP
+server using a server-side PAT.
 
-Registration is idempotent: registering the same real path — or the same
-``owner/repo`` — twice returns the same repository id (and refreshes its
+Registration is idempotent: re-registering the same uploaded directory — or
+the same ``owner/repo`` — returns the same repository id (and refreshes its
 snapshot).
-
-Deferred: persistence (PostgreSQL), so repositories and their snapshots survive
-restarts and can be shared across workers.
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
-from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,16 +24,15 @@ from .engine import count_files
 from .errors import RegistrationError, RepositoryNotFoundError
 from .github_mcp_client import GitHubMCPClient, RemoteHttpTransport
 from .github_mcp_repository import GitHubMCPRepository
-from .github_url import canonical_url, looks_like_github, parse_github_url
+from .github_url import canonical_url, parse_github_url
 from .limits import DEFAULT_LIMITS, EngineLimits
 from .local_adapter import LocalRepositoryAdapter
 from .models import RepositoryInfo, RepositoryKind
-from .paths import is_within
 from .repository import RepositoryInterface
 
 
 def _repo_id_for(real_path: str) -> str:
-    return "repo_" + hashlib.sha256(os.path.normcase(real_path).encode("utf-8")).hexdigest()[:10]
+    return "up_" + hashlib.sha256(real_path.encode("utf-8")).hexdigest()[:12]
 
 
 def _repo_id_for_github(owner: str, repo: str) -> str:
@@ -52,8 +46,6 @@ class RepositoryRegistry:
     def __init__(
         self,
         *,
-        allowed_roots: Sequence[str | Path] | None = None,
-        respect_gitignore: bool = True,
         limits: EngineLimits = DEFAULT_LIMITS,
         github_token: str | None = None,
         github_mcp_url: str = "https://api.githubcopilot.com/mcp/readonly",
@@ -63,11 +55,7 @@ class RepositoryRegistry:
     ) -> None:
         self._repos: dict[str, RepositoryInterface] = {}
         self._info: dict[str, RepositoryInfo] = {}
-        self._respect_gitignore = respect_gitignore
         self._limits = limits
-        self._allowed_roots: list[str] = [
-            os.path.realpath(str(p)) for p in (allowed_roots or [])
-        ]
         # GitHub access flows through the official GitHub MCP server (remote,
         # read-only) authenticated by a server-side PAT. The token is never
         # exposed to the frontend, a response, a citation, a log, or an error;
@@ -80,10 +68,6 @@ class RepositoryRegistry:
         # repos; owner/repo are passed as tool arguments. Tests inject a client
         # backed by an in-process fake MCP server so no real network is touched.
         self._github_client = github_mcp_client
-
-    @property
-    def allowed_roots(self) -> list[str]:
-        return list(self._allowed_roots)
 
     def _get_github_client(self) -> GitHubMCPClient:
         if self._github_client is None:
@@ -109,70 +93,38 @@ class RepositoryRegistry:
         if self._github_client is not None:
             self._github_client.close()
 
-    def _check_allowed(self, real_path: str) -> None:
-        if not self._allowed_roots:
-            return  # unrestricted (single-user local dev default)
-        for allowed in self._allowed_roots:
-            if is_within(allowed, real_path):
-                return
-        raise RegistrationError(
-            "Path is not within an allowed repository root. "
-            "Set ALLOWED_REPO_ROOTS to include it, or choose a permitted path."
-        )
+    def register_uploaded(self, repo_dir: Path, name: str | None = None) -> RepositoryInfo:
+        """Register a directory that the upload flow has already written to disk.
 
-    def detect_source(self, source: str) -> RepositoryKind:
-        """Classify a registration string as a GitHub URL or a local path.
-
-        Detection is by URL *host* (see :func:`looks_like_github`), never a
-        substring test, so a local path that merely contains "github.com" is
-        still treated as local.
+        The path must be one we just wrote — there is no allow-list or path
+        validation here, because the only thing allowed to land in the upload
+        root is the upload pipeline itself. The adapter ignores
+        ``node_modules``/``.git``/etc. and enforces the engine size limits.
         """
 
-        return RepositoryKind.github if looks_like_github(source) else RepositoryKind.local
+        repo_dir = Path(repo_dir).resolve()
+        if not repo_dir.exists():
+            raise RegistrationError(f"Upload directory does not exist: {repo_dir}")
+        if not repo_dir.is_dir():
+            raise RegistrationError(f"Upload path is not a directory: {repo_dir}")
 
-    def register(self, source: str, name: str | None = None) -> RepositoryInfo:
-        """Register a repository from either a local path or a GitHub URL.
-
-        The source is auto-detected and routed to the matching adapter; local
-        registration behavior is unchanged. This is the single entry point the
-        API calls so a GitHub URL is never mistaken for a filesystem path.
-        """
-
-        if not source or not str(source).strip():
-            raise RegistrationError("A repository path or GitHub URL is required.")
-        if self.detect_source(source) is RepositoryKind.github:
-            return self.register_github(source, name=name)
-        return self.register_local(source, name=name)
-
-    def register_local(self, path: str, name: str | None = None) -> RepositoryInfo:
-        if not path or not str(path).strip():
-            raise RegistrationError("A repository path is required.")
-        real = os.path.realpath(str(path))
-        real_path = Path(real)
-        if not real_path.exists():
-            raise RegistrationError(f"Path does not exist: {path}")
-        if not real_path.is_dir():
-            raise RegistrationError(f"Path is not a directory: {path}")
-        self._check_allowed(real)
-
-        repo_id = _repo_id_for(real)
-        display = name or real_path.name or repo_id
+        repo_id = _repo_id_for(str(repo_dir))
+        display = name or repo_dir.name or repo_id
 
         adapter = LocalRepositoryAdapter(
             repo_id,
             display,
-            real_path,
-            respect_gitignore=self._respect_gitignore,
+            repo_dir,
             limits=self._limits,
         )
         info = RepositoryInfo(
             id=repo_id,
             name=display,
             kind=RepositoryKind.local,
-            root=str(real_path),
+            root=str(repo_dir),
             snapshot=adapter.get_snapshot(),
             registered_at=datetime.now(tz=timezone.utc),
-            file_count_hint=count_files(real_path, adapter.ignore, limits=self._limits),
+            file_count_hint=count_files(repo_dir, adapter.ignore, limits=self._limits),
         )
         self._repos[repo_id] = adapter
         self._info[repo_id] = info
@@ -185,9 +137,7 @@ class RepositoryRegistry:
         Building the repository opens (lazily, once) the shared GitHub MCP session,
         pins the newest default-branch commit, and fetches the file tree via MCP
         tool calls — surfacing typed MCP-aware errors (connection / auth /
-        not-found / tool error), never a raw response or the token. The
-        ``allowed_roots`` filesystem allow-list does not apply here — it constrains
-        local filesystem access, and GitHub never touches disk.
+        not-found / tool error), never a raw response or the token.
         """
 
         owner, repo = parse_github_url(url)
@@ -233,12 +183,13 @@ class RepositoryRegistry:
 
         This drops both internal maps for ``repo_id`` and releases the adapter
         reference. It performs **no** filesystem, git, or GitHub/MCP operation:
-        the local directory and the remote GitHub repository are left completely
-        untouched. The shared GitHub MCP session is intentionally *not* closed
-        here — other GitHub repos may still be using it, and it is closed only on
-        app shutdown via :meth:`close_github_mcp`. Raises
-        :class:`RepositoryNotFoundError` for an unknown id (mirrors
-        :meth:`get`/:meth:`get_info`).
+        the upload directory and the remote GitHub repository are left
+        completely untouched by this call (the upload router is responsible
+        for any on-disk cleanup of an uploaded directory). The shared GitHub
+        MCP session is intentionally *not* closed here — other GitHub repos
+        may still be using it, and it is closed only on app shutdown via
+        :meth:`close_github_mcp`. Raises :class:`RepositoryNotFoundError` for
+        an unknown id (mirrors :meth:`get`/:meth:`get_info`).
         """
 
         if repo_id not in self._info:

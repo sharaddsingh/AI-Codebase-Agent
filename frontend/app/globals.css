@@ -4,6 +4,13 @@
 
 :root {
   color-scheme: dark;
+  --bg-radial: radial-gradient(
+    1200px 600px at 0% 0%,
+    rgba(124, 92, 255, 0.18),
+    transparent 60%
+  ),
+  radial-gradient(900px 500px at 100% 100%, rgba(34, 211, 238, 0.1), transparent 60%),
+  linear-gradient(180deg, #0a0a0f 0%, #11121a 100%);
 }
 
 html,
@@ -12,24 +19,152 @@ body {
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  @apply bg-slate-base text-zinc-100 antialiased;
+  background: var(--bg-radial);
+  background-attachment: fixed;
+  font-family: var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
 }
 
-/* Thin, dark scrollbars to match the tool aesthetic. */
+/* Faint, premium grid lines. Layered behind everything; pointer-events: none. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px, 56px 56px;
+  background-position: -1px -1px, -1px -1px;
+  mask-image: radial-gradient(ellipse at 50% 30%, #000 35%, transparent 80%);
+}
+
+/* Thin, dark scrollbars that match the new palette. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
+  scrollbar-color: #2a2d44 transparent;
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #3f3f46;
+  background-color: #2a2d44;
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #52525b;
+  background-color: #3a3e5e;
+}
+
+/* ---- Citation beam: a horizontal beam that briefly flashes over the cited
+   line in the code viewer. Pure CSS keyframe, no JS. ---- */
+@keyframes citation-beam-flash {
+  0% {
+    opacity: 0;
+    transform: scaleX(0) translateY(-50%);
+    transform-origin: left center;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1) translateY(-50%);
+    transform-origin: left center;
+  }
+}
+.citation-beam {
+  animation: citation-beam-flash 1200ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* ---- Card hover tilt: the parent .tilt-card sets CSS vars for the
+   gradient highlight; the inner element consumes them. ---- */
+.tilt-card {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --shine-x: 50%;
+  --shine-y: 50%;
+  transform: perspective(800px) rotateX(var(--tilt-y)) rotateY(var(--tilt-x));
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+  will-change: transform;
+}
+.tilt-card:hover {
+  box-shadow: 0 24px 60px -24px rgba(124, 92, 255, 0.45),
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset;
+}
+.tilt-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    400px circle at var(--shine-x) var(--shine-y),
+    rgba(124, 92, 255, 0.18),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.tilt-card:hover::after {
+  opacity: 1;
+}
+
+/* ---- Drop-zone 3D rotated rectangle with conic-gradient sweep. ---- */
+.drop-3d {
+  position: relative;
+  isolation: isolate;
+}
+.drop-3d::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    rgba(124, 92, 255, 0.0),
+    rgba(124, 92, 255, 0.7),
+    rgba(34, 211, 238, 0.7),
+    rgba(124, 92, 255, 0.0)
+  );
+  filter: blur(8px);
+  opacity: 0.8;
+  animation: sweep 4s linear infinite;
+  z-index: -1;
+}
+.drop-3d::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    rgba(124, 92, 255, 0.0),
+    rgba(124, 92, 255, 0.35),
+    rgba(34, 211, 238, 0.35),
+    rgba(124, 92, 255, 0.0)
+  );
+  animation: sweep 4s linear infinite;
+  opacity: 0.5;
+  z-index: -1;
+}
+
+/* ---- Shimmering gradient text for the brand wordmark. ---- */
+.text-shimmer {
+  background: linear-gradient(
+    90deg,
+    #7c5cff 0%,
+    #22d3ee 30%,
+    #9b87ff 60%,
+    #7c5cff 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 6s linear infinite;
 }
