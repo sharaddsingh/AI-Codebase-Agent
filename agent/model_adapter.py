@@ -1,16 +1,20 @@
 """Provider-agnostic model adapter.
 
 The agent loop programs against :class:`ModelAdapter` and never imports a vendor
-SDK directly. :class:`AnthropicAdapter` (Claude) is the concrete provider; a
-:class:`MockAdapter` replays scripted responses so the loop can be tested
-deterministically without a network call or API key.
+SDK directly. :class:`AnthropicAdapter` (Claude) is the concrete provider;
+a :class:`MockAdapter` replays scripted responses so the loop can be tested
+deterministically without a network call or API key. :class:`OpenAIAdapter`
+speaks the OpenAI Chat Completions protocol for any compatible host (OpenAI,
+TaBiToken, OpenRouter, llama.cpp / vLLM / Ollama with an OpenAI shim).
 
 The internal message format is an OpenAI-style chat schema (a de-facto
 standard): a list of ``{"role", "content", ...}`` dicts, where assistant
 tool-call turns carry ``tool_calls`` and tool results use
 ``{"role": "tool", "tool_call_id"}``. Each adapter translates this to its
 provider's native format — :class:`AnthropicAdapter` maps it onto Claude's
-``tool_use`` / ``tool_result`` content blocks and ``input_schema`` tools.
+``tool_use`` / ``tool_result`` content blocks and ``input_schema`` tools;
+:class:`OpenAIAdapter` passes it through unchanged because the format is
+already OpenAI's.
 """
 
 from __future__ import annotations
@@ -159,8 +163,13 @@ def _describe_anthropic_error(exc: BaseException, model: str, *, max_len: int = 
     it" / "DNS failed" / "TLS handshake failed" lives), the model name, and the
     request URL when the SDK exposes it — and explicitly drops anything that
     could carry the `x-api-key` / Authorization header.
-    """
 
+    When the upstream returned HTML instead of JSON (Cloudflare / generic
+    gateway challenge page), the helper adds a first-class hint that the host
+    likely speaks an OpenAI-compatible protocol rather than Anthropic's
+    Messages API, so the user knows to switch providers instead of digging
+    through Cloudflare internals.
+    """
     cls = type(exc).__name__
     base = f"{cls}: {exc}"
     request = getattr(exc, "request", None)
@@ -174,6 +183,18 @@ def _describe_anthropic_error(exc: BaseException, model: str, *, max_len: int = 
     cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
     if cause is not None and cause is not exc:
         base = f"{base} [cause: {type(cause).__name__}: {cause}]"
+    # Cloudflare / generic-gateway challenge page detection: the SDK blew up
+    # because the upstream returned HTML instead of JSON. The host almost
+    # certainly speaks a non-Anthropic protocol (typically an OpenAI-compatible
+    # gateway like TaBiToken). Surface that as a first-class hint rather than
+    # leaving the user to decode "<!DOCTYPE html>".
+    text = str(exc) or ""
+    if "<!DOCTYPE" in text or "<html" in text.lower() or "Just a moment" in text:
+        base = (
+            f"{base} | the configured base URL returned HTML, not JSON - it "
+            f"likely speaks an OpenAI-compatible protocol. Switch with "
+            f"MODEL_PROVIDER=openai and OPENAI_BASE_URL=<the same URL>."
+        )
     base = f"{base} (model={model})"
     if len(base) > max_len:
         base = base[: max_len - 1].rstrip() + "…"
@@ -185,8 +206,8 @@ class AnthropicAdapter(ModelAdapter):
 
     Translates the internal OpenAI-style message list into Claude's native
     ``tool_use`` / ``tool_result`` content blocks and maps the tool schemas to
-    Anthropic's ``input_schema`` form. ``max_tokens`` is required by the Messages
-    API, so it is a first-class constructor argument.
+    Anthropic's ``input_schema`` form. ``max_tokens`` is required by the
+    Messages API, so it is a first-class constructor argument.
     """
 
     provider = "anthropic"
@@ -269,6 +290,157 @@ class AnthropicAdapter(ModelAdapter):
             text="".join(text_parts) or None,
             tool_calls=tool_calls,
             finish_reason=getattr(resp, "stop_reason", None) or "stop",
+            usage=usage,
+        )
+
+
+class OpenAIAdapter(ModelAdapter):
+    """OpenAI-compatible provider.
+
+    Speaks the OpenAI Chat Completions protocol (``/v1/chat/completions``),
+    so it works with any service that implements it: OpenAI proper,
+    third-party gateways (TaBiToken, OpenRouter), and locally-served llama.cpp
+    / vLLM / Ollama with an OpenAI shim. The agent loop already produces
+    OpenAI-style messages and tool schemas, so this adapter is a thin wrapper -
+    the translation is mostly a passthrough.
+
+    Set ``model_provider=openai``, ``OPENAI_API_KEY=...``, and
+    ``OPENAI_BASE_URL`` (only needed for non-openai.com hosts).
+    """
+
+    provider = "openai"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        model: str = "gpt-4o-mini",
+        base_url: str | None = None,
+        max_tokens: int = 4096,
+        timeout: float = 60.0,
+    ) -> None:
+        if not api_key:
+            raise ModelConfigError(
+                "OPENAI_API_KEY is not configured; the agent cannot run. "
+                "Set it (and, for non-OpenAI hosts, OPENAI_BASE_URL) in the "
+                "backend environment. Never expose it to the frontend."
+            )
+        try:
+            from openai import OpenAI
+        except ImportError as exc:  # pragma: no cover - dependency guaranteed by requirements
+            raise ModelConfigError("The 'openai' package is not installed.") from exc
+
+        # strip duplicate trailing slashes - the SDK is strict when concatenating /chat/completions
+        clean_base = base_url.rstrip("/") if base_url else None
+        self._client = OpenAI(api_key=api_key, base_url=clean_base, timeout=timeout)
+        self.model = model
+        self.max_tokens = max_tokens
+
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float = 0.0,
+    ) -> ModelResponse:
+        # OpenAI Chat Completions prepends the system prompt as the first
+        # message with role=system.
+        oa_messages: list[dict] = [{"role": "system", "content": system}]
+        for m in messages:
+            role = m.get("role")
+            if role == "system":
+                oa_messages.append({"role": "system", "content": m.get("content") or ""})
+                continue
+            if role == "assistant":
+                content = m.get("content") or ""
+                tool_calls_in = m.get("tool_calls") or []
+                oa_msg = {"role": "assistant", "content": content}
+                if tool_calls_in:
+                    oa_msg["tool_calls"] = [
+                        {
+                            "id": tc.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": (tc.get("function") or {}).get("name", ""),
+                                "arguments": (tc.get("function") or {}).get("arguments") or "{}",
+                            },
+                        }
+                        for tc in tool_calls_in
+                    ]
+                oa_messages.append(oa_msg)
+                continue
+            if role == "tool":
+                oa_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": m.get("tool_call_id", ""),
+                        "content": m.get("content") or "",
+                    }
+                )
+                continue
+            oa_messages.append({"role": role or "user", "content": m.get("content") or ""})
+
+        kwargs: dict = {
+            "model": self.model,
+            "messages": oa_messages,
+            "max_tokens": self.max_tokens,
+            "temperature": temperature,
+        }
+        if tools:
+            # The agent loop emits OpenAI-style tool schemas already
+            # ({"type":"function","function":{name,description,parameters}}),
+            # so no transformation is needed.
+            kwargs["tools"] = tools
+
+        try:
+            resp = self._client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - normalize any SDK error
+            raise ModelCallError(_describe_anthropic_error(exc, self.model)) from exc
+
+        text_parts: list[str] = []
+        final_tool_calls: list[ToolCall] = []
+        finish_reason = "stop"
+        usage = None
+
+        choices = getattr(resp, "choices", None) or []
+        if choices:
+            first = choices[0]
+            message = getattr(first, "message", None)
+            if message is not None:
+                content = getattr(message, "content", None) or ""
+                if content:
+                    text_parts.append(content)
+                for tc in getattr(message, "tool_calls", None) or []:
+                    fn = getattr(tc, "function", None)
+                    name = getattr(fn, "name", "") if fn is not None else ""
+                    raw_args = getattr(fn, "arguments", "{}") if fn is not None else "{}"
+                    try:
+                        parsed = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                        if not isinstance(parsed, dict):
+                            parsed = {}
+                    except (json.JSONDecodeError, TypeError):
+                        parsed = {}
+                    final_tool_calls.append(
+                        ToolCall(
+                            id=getattr(tc, "id", "") or "",
+                            name=name,
+                            arguments=parsed,
+                        )
+                    )
+            finish_reason = getattr(first, "finish_reason", None) or "stop"
+
+        u = getattr(resp, "usage", None)
+        if u is not None:
+            usage = {
+                "input_tokens": getattr(u, "prompt_tokens", None),
+                "output_tokens": getattr(u, "completion_tokens", None),
+            }
+
+        return ModelResponse(
+            text="".join(text_parts) or None,
+            tool_calls=final_tool_calls,
+            finish_reason=finish_reason,
             usage=usage,
         )
 

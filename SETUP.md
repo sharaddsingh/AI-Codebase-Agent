@@ -35,8 +35,20 @@ cp .env.example .env
 
 Open `.env` and choose one of:
 
-- **With a real model:** set `MODEL_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=sk-ant-...`
-- **Without any key (recommended for a first run):** set `MODEL_PROVIDER=mock`
+- **Anthropic Claude (default):** set `MODEL_PROVIDER=anthropic` and
+  `ANTHROPIC_API_KEY=sk-ant-...`. Uses Anthropic's native Messages API.
+- **Any OpenAI-compatible host (TaBiToken, OpenRouter, llama.cpp with an
+  OpenAI shim, vLLM, Ollama, ...):** set `MODEL_PROVIDER=openai`, then
+  `OPENAI_API_KEY=...` and `OPENAI_BASE_URL=<host root, no /v1>`.
+  `OPENAI_MODEL=<the model name>` (e.g. `gpt-4o-mini` for OpenAI proper or
+  whatever your host exposes).
+- **Without any key (recommended for a first run):** set `MODEL_PROVIDER=mock`.
+
+> **Anthropic-only:** `ANTHROPIC_BASE_URL` only works with hosts that speak
+> Anthropic's native Messages API. Most third-party gateways are
+> OpenAI-compatible — if you see `<!DOCTYPE html>` or `PermissionDeniedError`
+> with HTML in the error message, switch to `MODEL_PROVIDER=openai` and use
+> `OPENAI_BASE_URL` against the same host.
 
 For GitHub repositories, also set `GITHUB_TOKEN=ghp_...` — the official remote
 GitHub MCP server requires a token even for public repos.

@@ -18,11 +18,23 @@ class Settings(BaseSettings):
     )
 
     # -- model provider ---------------------------------------------------
-    model_provider: str = "anthropic"        # "anthropic" | "mock"
+    # "anthropic"  -> Anthropic Claude (Messages API). Requires ANTHROPIC_API_KEY.
+    # "openai"     -> Any OpenAI-compatible chat-completions service
+    #                 (OpenAI proper, TaBiToken, OpenRouter, local llama.cpp
+    #                 with an OpenAI shim, vLLM, etc.). Requires OPENAI_API_KEY
+    #                 and optionally OPENAI_BASE_URL.
+    # "mock"       -> deterministic, no network. Used for tests and the
+    #                 local "no API key" first-run path.
+    model_provider: str = "anthropic"        # "anthropic" | "openai" | "mock"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-5"
     anthropic_base_url: str | None = None
     anthropic_max_tokens: int = 4096
+    # OpenAI-compatible provider settings. Used when model_provider == "openai".
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str | None = None  # e.g. https://tabitoken.com/v1
+    openai_max_tokens: int = 4096
     agent_temperature: float = 0.0
 
     # -- agent budgets ----------------------------------------------------

@@ -20,6 +20,15 @@ from agent.model_adapter import (
 )
 from agent.tools_spec import TOOL_SCHEMAS
 
+# OpenAIAdapter requires the openai SDK, which the runtime requirements
+# pin but may be missing in a minimal dev env. Skip those tests cleanly when
+# the package isn't there rather than failing the suite.
+try:
+    import openai  # noqa: F401
+    _HAS_OPENAI = True
+except ImportError:
+    _HAS_OPENAI = False
+
 
 # -- fakes standing in for the anthropic SDK response objects ------------------
 class _Block:
@@ -209,3 +218,171 @@ def test_complete_text_only_answer_has_no_tool_calls() -> None:
     assert out.text == "final answer"
     assert out.tool_calls == []
     assert out.finish_reason == "end_turn"
+
+
+# --------------------------------------------------------------------------
+# HTML / Cloudflare detection in the shared error helper.
+# --------------------------------------------------------------------------
+
+class _FakeExc(Exception):
+    """Minimal stand-in for the anthropic SDK's auth/network exceptions."""
+
+    def __init__(self, msg: str, status: int = 403) -> None:
+        super().__init__(msg)
+        self.request = _FakeReq(f"https://tabitoken.com/v1/messages")
+        self.response = _FakeResp(status)
+
+
+class _FakeReq:
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+
+class _FakeResp:
+    def __init__(self, status: int) -> None:
+        self.status_code = status
+
+
+def test_describe_anthropic_error_detects_cloudflare_html() -> None:
+    """When the upstream returns HTML (Cloudflare challenge), the helper must
+    add a first-class hint to switch to MODEL_PROVIDER=openai."""
+
+    from agent.model_adapter import _describe_anthropic_error
+
+    msg = "<!DOCTYPE html><html><head><title>Just a moment...</title></head>"
+    exc = _FakeExc(msg)
+    out = _describe_anthropic_error(exc, "claude-opus-5")
+    assert "HTML, not JSON" in out
+    assert "MODEL_PROVIDER=openai" in out
+    # And never leaks any token-like secret.
+    assert "x-api-key" not in out
+    assert "sk-" not in out
+
+
+def test_describe_anthropic_error_passes_through_normal_errors() -> None:
+    """Non-HTML errors should not get the OpenAI-switch hint."""
+
+    from agent.model_adapter import _describe_anthropic_error
+
+    exc = _FakeExc("Connection refused", status=0)
+    out = _describe_anthropic_error(exc, "claude-opus-5")
+    assert "MODEL_PROVIDER=openai" not in out
+    assert "claude-opus-5" in out
+
+
+# --------------------------------------------------------------------------
+# OpenAIAdapter: passthrough translation + error surfacing.
+# --------------------------------------------------------------------------
+
+def test_openai_adapter_rejects_missing_key() -> None:
+    from agent.model_adapter import OpenAIAdapter
+
+    with pytest.raises(ModelConfigError) as ei:
+        OpenAIAdapter(api_key=None)
+    assert "OPENAI_API_KEY" in str(ei.value)
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason="openai package not installed")
+def test_openai_adapter_passes_messages_and_tools_to_sdk() -> None:
+    """Smoke test the passthrough against a fake OpenAI SDK client."""
+    from agent.model_adapter import OpenAIAdapter
+
+    captured: dict = {}
+
+    class _ChoiceMsg:
+        content = "hi"
+        tool_calls = []
+
+    class _Choice:
+        def __init__(self) -> None:
+            self.message = _ChoiceMsg()
+            self.finish_reason = "stop"
+
+    class _Usage:
+        prompt_tokens = 1
+        completion_tokens = 2
+
+    class _Resp:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+            self.usage = _Usage()
+
+    class _Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return _Resp()
+
+    class _Client:
+        def __init__(self) -> None:
+            self.chat = type("Chat", (), {"completions": _Completions()})()
+
+    adapter = OpenAIAdapter(api_key="sk-test", model="gpt-4o-mini")
+    adapter._client = _Client()
+    out = adapter.complete(
+        system="sys",
+        messages=[{"role": "user", "content": "q"}],
+        tools=[{"type": "function", "function": {"name": "x", "parameters": {}}}],
+        temperature=0.0,
+    )
+    # system prompt is prepended as a system message.
+    assert captured["messages"][0] == {"role": "system", "content": "sys"}
+    # tools passed through.
+    assert captured["tools"] == [{"type": "function", "function": {"name": "x", "parameters": {}}}]
+    # response parsed.
+    assert out.text == "hi"
+    assert out.finish_reason == "stop"
+    assert out.usage == {"input_tokens": 1, "output_tokens": 2}
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason="openai package not installed")
+def test_openai_adapter_parses_tool_calls() -> None:
+    from agent.model_adapter import OpenAIAdapter
+    import json as _json
+
+    class _ToolCall:
+        def __init__(self, id_: str, name: str, args: str) -> None:
+            self.id = id_
+            self.function = type("F", (), {"name": name, "arguments": args})()
+
+    class _ChoiceMsg:
+        content = None
+        tool_calls = [
+            _ToolCall("c1", "search_code", _json.dumps({"query": "auth"})),
+        ]
+
+    class _Choice:
+        def __init__(self) -> None:
+            self.message = _ChoiceMsg()
+            self.finish_reason = "tool_calls"
+
+    class _Resp:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+            self.usage = None
+
+    class _Completions:
+        def create(self, **kwargs):
+            return _Resp()
+
+    class _Client:
+        def __init__(self) -> None:
+            self.chat = type("Chat", (), {"completions": _Completions()})()
+
+    adapter = OpenAIAdapter(api_key="sk-test")
+    adapter._client = _Client()
+    out = adapter.complete(
+        system="s",
+        messages=[
+            {"role": "user", "content": "u"},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"id": "old", "function": {"name": "x", "arguments": "{}"}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "old", "content": "r"},
+        ],
+    )
+    assert out.tool_calls and out.tool_calls[0].name == "search_code"
+    assert out.tool_calls[0].arguments == {"query": "auth"}
+    assert out.finish_reason == "tool_calls"

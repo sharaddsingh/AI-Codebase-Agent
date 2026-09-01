@@ -42,7 +42,9 @@ cd frontend && npm install && cd ..
 cp .env.example .env
 ```
 
-Edit `.env`. The two values that matter most:
+Edit `.env`. Three ways to wire a model:
+
+**Anthropic Claude (default)** — uses Anthropic's native Messages API:
 
 ```env
 MODEL_PROVIDER=anthropic
@@ -50,7 +52,18 @@ ANTHROPIC_API_KEY=sk-ant-...
 GITHUB_TOKEN=ghp_...           # required for GitHub repos via MCP
 ```
 
-`MODEL_PROVIDER=mock` runs without any API key and gives you a deterministic scripted agent for demos.
+**Any OpenAI-compatible host** (TaBiToken, OpenRouter, llama.cpp + shim, vLLM, Ollama, ...). The agent loop already produces OpenAI-style messages and tool schemas, so this is mostly a passthrough:
+
+```env
+MODEL_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=https://your-host.example   # no trailing /v1
+OPENAI_MODEL=your-model-name
+```
+
+**`MODEL_PROVIDER=mock`** runs without any API key and gives you a deterministic scripted agent for demos.
+
+> **Anthropic-only base_url:** `ANTHROPIC_BASE_URL` only works with hosts that speak Anthropic's native Messages API. Most third-party gateways are OpenAI-compatible — if you see `<!DOCTYPE html>` or `PermissionDeniedError` with HTML in the error message, switch to `MODEL_PROVIDER=openai` and use `OPENAI_BASE_URL` against the same host.
 
 ### 3. Run
 
@@ -120,11 +133,15 @@ Open `http://localhost:3000`. Click **Upload** to drop a folder, or click **GitH
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MODEL_PROVIDER` | `anthropic` | `anthropic` or `mock` (no key needed) |
+| `MODEL_PROVIDER` | `anthropic` | `anthropic` (Claude Messages API), `openai` (any OpenAI-compatible host), or `mock` |
 | `ANTHROPIC_API_KEY` | — | Server-side model credential |
 | `ANTHROPIC_MODEL` | `claude-opus-5` | Model identifier |
 | `ANTHROPIC_MAX_TOKENS` | `4096` | Cap on each model response |
-| `ANTHROPIC_BASE_URL` | — | Override the API base URL |
+| `ANTHROPIC_BASE_URL` | — | Override the Anthropic API base URL (Anthropic-protocol hosts only) |
+| `OPENAI_API_KEY` | — | Required when `MODEL_PROVIDER=openai` |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Model identifier when `MODEL_PROVIDER=openai` |
+| `OPENAI_BASE_URL` | — | Override for OpenAI-compatible hosts (e.g. TaBiToken, OpenRouter, llama.cpp + shim) |
+| `OPENAI_MAX_TOKENS` | `4096` | Cap on each model response when `MODEL_PROVIDER=openai` |
 | `AGENT_MAX_TOOL_CALLS` | `20` | Bound on tool calls per question |
 | `AGENT_MAX_SECONDS` | `150` | Bound on total investigation time |
 | `AGENT_MAX_FILES` | `20` | Bound on files read |

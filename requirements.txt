@@ -10,8 +10,10 @@ sse-starlette>=2.1
 httpx>=0.27
 httpx2>=2.5
 
-# Model provider SDK (Claude/Anthropic; the adapter is provider-agnostic)
+# Model provider SDKs. Both Anthropic (Claude) and OpenAI (any compatible
+# chat-completions host) are supported; the agent loop is provider-agnostic.
 anthropic>=0.39,<2.0
+openai>=1.40,<2.0
 
 # Official Model Context Protocol SDK (do NOT hand-roll the protocol).
 # Used both as a server (mcp/server.py) and as a client (GitHub MCP).

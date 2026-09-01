@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from agent import AgentLoop, AnthropicAdapter, MockAdapter, ModelAdapter
+from agent import AgentLoop, AnthropicAdapter, MockAdapter, ModelAdapter, OpenAIAdapter
+from agent.model_adapter import ModelConfigError
 from code_intelligence.registry import RepositoryRegistry
 from code_intelligence.repository import RepositoryInterface
 
@@ -65,13 +66,29 @@ def set_model_adapter(adapter: ModelAdapter | None) -> None:
 
 def build_model_adapter(settings: Settings) -> ModelAdapter:
     """Construct the configured model adapter. May raise ModelConfigError."""
-    if settings.model_provider == "mock":
+    provider = settings.model_provider
+    if provider == "mock":
         return MockAdapter([])
-    return AnthropicAdapter(
-        api_key=settings.anthropic_api_key,
-        model=settings.anthropic_model,
-        base_url=settings.anthropic_base_url,
-        max_tokens=settings.anthropic_max_tokens,
+    if provider == "openai":
+        # Any OpenAI-compatible chat-completions service. Set OPENAI_BASE_URL
+        # for non-openai.com hosts (TaBiToken, OpenRouter, llama.cpp + shim,
+        # vLLM, etc.). The adapter sends OpenAI-style messages and tools,
+        # which is exactly what those services expect.
+        return OpenAIAdapter(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            base_url=settings.openai_base_url,
+            max_tokens=settings.openai_max_tokens,
+        )
+    if provider == "anthropic":
+        return AnthropicAdapter(
+            api_key=settings.anthropic_api_key,
+            model=settings.anthropic_model,
+            base_url=settings.anthropic_base_url,
+            max_tokens=settings.anthropic_max_tokens,
+        )
+    raise ModelConfigError(
+        f"Unknown MODEL_PROVIDER: {provider!r}. Expected one of: anthropic, openai, mock."
     )
 
 
