@@ -9,8 +9,7 @@ interface HeaderProps {
   healthError: string | null;
 }
 
-const GITHUB_REPO_URL = "https://github.com/example/ai-codebase-agent";
-const GITHUB_STAR_MOCK = 1240; // Static placeholder; wire to the GitHub API later.
+const GITHUB_REPO_URL = "https://github.com/sharaddsingh/AI-Codebase-Agent";
 
 export function Header({ health, healthError }: HeaderProps) {
   const modelLabel = health
@@ -41,9 +40,7 @@ export function Header({ health, healthError }: HeaderProps) {
           title="Star on GitHub"
         >
           <Github className="h-3.5 w-3.5 text-zinc-400 group-hover:text-violet-brand-soft" />
-          <span className="font-medium tabular-nums">
-            {GITHUB_STAR_MOCK.toLocaleString()}
-          </span>
+
         </a>
 
         {modelLabel ? (
