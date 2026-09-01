@@ -78,8 +78,17 @@ mount, or networked filesystem) is mandatory.
 All settings come from environment variables; see [`.env.example`](../.env.example)
 for the full list. The values that matter for production:
 
-- `MODEL_PROVIDER` — `anthropic` (real Claude) or `mock` (deterministic, no key).
-- `ANTHROPIC_API_KEY` — required for `anthropic`.
+- `MODEL_PROVIDER` — `anthropic` (real Claude), `openai` (any OpenAI-compatible
+  chat-completions host: api.openai.com, OpenRouter, llama.cpp + shim, vLLM),
+  `gemini` (Google Gemini native API), or `mock` (deterministic, no key).
+  Matching is case-insensitive so `OPENAI` / `GEMINI` from Render env
+  dashboards work as well.
+- `ANTHROPIC_API_KEY` — required for `anthropic`. Optional `ANTHROPIC_BASE_URL`
+  for proxying through a gateway.
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` — required for `openai`. `OPENAI_BASE_URL`
+  is the host root, no trailing slash (e.g. `https://openrouter.ai/api/v1`).
+- `GEMINI_API_KEY` — required for `gemini`. Free tier at
+  https://aistudio.google.com/apikey.
 - `GITHUB_TOKEN` — required for GitHub repository registration. The remote
   GitHub MCP server rejects unauthenticated requests even for public repos.
 - `UPLOAD_ROOT` — must point at a persistent directory in production.
@@ -87,6 +96,41 @@ for the full list. The values that matter for production:
   single-image deploy, set it to the production URL of the service.
 - `STATIC_DIR` — where the backend looks for the static frontend. Defaults to
   `./static`, which matches the Docker image.
+
+## Provider recipes
+
+### Google Gemini (recommended for free / fast)
+
+```
+MODEL_PROVIDER=gemini
+GEMINI_API_KEY=<from https://aistudio.google.com/apikey>
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+Free tier supports `gemini-2.0-flash` and `gemini-1.5-flash`. The native
+adapter speaks the Gemini protocol directly, so there is no Cloudflare /
+gateway in between and no upstream IP allowlist needed.
+
+### OpenAI-compatible gateway (OpenRouter, vLLM, llama.cpp + shim)
+
+```
+MODEL_PROVIDER=openai
+OPENAI_API_KEY=<your key>
+OPENAI_BASE_URL=https://openrouter.ai/api/v1   # or your endpoint
+OPENAI_MODEL=anthropic/claude-3.5-sonnet       # whatever the host serves
+```
+
+OpenRouter is a useful option if you want Claude behind the OpenAI wire
+format without TaBiToken-style Cloudflare interference.
+
+### Anthropic direct
+
+```
+MODEL_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+ANTHROPIC_BASE_URL=                            # optional, for proxies
+```
 
 ## What the backend does NOT do in production yet
 

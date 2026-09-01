@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from agent import AgentLoop, AnthropicAdapter, MockAdapter, ModelAdapter, OpenAIAdapter
+from agent import AgentLoop, AnthropicAdapter, GeminiAdapter, MockAdapter, ModelAdapter, OpenAIAdapter
 from agent.model_adapter import ModelConfigError
 from code_intelligence.registry import RepositoryRegistry
 from code_intelligence.repository import RepositoryInterface
@@ -92,9 +92,15 @@ def build_model_adapter(settings: Settings) -> ModelAdapter:
             base_url=settings.anthropic_base_url,
             max_tokens=settings.anthropic_max_tokens,
         )
+    if provider == "gemini":
+        return GeminiAdapter(
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            max_tokens=settings.gemini_max_tokens,
+        )
     raise ModelConfigError(
         f"Unknown MODEL_PROVIDER: {settings.model_provider!r}. "
-        "Expected one of: anthropic, openai, mock."
+        "Expected one of: anthropic, openai, gemini, mock."
     )
 
 

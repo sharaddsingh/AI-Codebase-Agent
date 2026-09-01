@@ -445,6 +445,195 @@ class OpenAIAdapter(ModelAdapter):
         )
 
 
+class GeminiAdapter(ModelAdapter):
+    """Google Gemini (native protocol) provider.
+
+    Translates the internal OpenAI-style message list into Gemini's
+    ``contents`` format and OpenAI-style tool schemas into Gemini's
+    ``function_declarations``. Streaming is not used because the agent loop
+    only needs a single complete() round-trip per step.
+
+    Set ``model_provider=gemini``, ``GEMINI_API_KEY=...`` (and optionally
+    ``GEMINI_MODEL``, defaults to ``gemini-2.0-flash``).
+    """
+
+    provider = "gemini"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        model: str = "gemini-2.0-flash",
+        max_tokens: int = 4096,
+        timeout: float = 60.0,
+    ) -> None:
+        if not api_key:
+            raise ModelConfigError(
+                "GEMINI_API_KEY is not configured; the agent cannot run. "
+                "Set it in the backend environment (never expose it to the frontend)."
+            )
+        try:
+            from google import genai  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover - dependency declared in requirements
+            raise ModelConfigError("The 'google-genai' package is not installed.") from exc
+
+        # http_options lets us cap the request timeout so a stuck Gemini call
+        # does not block the agent stream forever. The SDK accepts a float
+        # timeout in seconds.
+        try:
+            from google.genai import types as _gtypes  # type: ignore[import-not-found]
+            self._client = genai.Client(
+                api_key=api_key,
+                http_options=_gtypes.HttpOptions(timeout=timeout * 1000),
+            )
+        except Exception:  # noqa: BLE001 - older SDKs may not expose HttpOptions
+            self._client = genai.Client(api_key=api_key)
+        self.model = model
+        self.max_tokens = max_tokens
+
+    def _to_gemini_contents(self, messages: list[dict]) -> list[dict]:
+        """Convert the internal OpenAI-style messages into Gemini ``contents``.
+
+        - ``system`` messages are dropped (passed via ``system_instruction``).
+        - ``user`` / assistant text become single-part text contents.
+        - ``assistant`` tool-call turns become a ``model`` content with text
+          (if any) plus one ``function_call`` part per tool.
+        - ``tool`` result messages become ``user`` contents with one
+          ``function_response`` part per result.
+        """
+        out: list[dict] = []
+        for m in messages:
+            role = m.get("role")
+            if role == "system":
+                continue
+            if role == "assistant":
+                parts: list[dict] = []
+                content = m.get("content")
+                if content:
+                    parts.append({"text": content})
+                for tc in m.get("tool_calls") or []:
+                    fn = tc.get("function") or {}
+                    name = fn.get("name") or ""
+                    raw_args = fn.get("arguments") or "{}"
+                    try:
+                        parsed = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                    except (json.JSONDecodeError, TypeError):
+                        parsed = {}
+                    parts.append({"function_call": {"name": name, "args": parsed or {}}})
+                out.append({"role": "model", "parts": parts or [{"text": ""}]})
+                continue
+            if role == "tool":
+                # The internal message format only carries tool_call_id; look
+                # up the function name from the latest assistant turn that
+                # emitted the matching tool call.
+                call_id = m.get("tool_call_id") or ""
+                fn_name = ""
+                for prev in reversed(out):
+                    if prev.get("role") == "model":
+                        for p2 in prev.get("parts") or []:
+                            fc = p2.get("function_call") if isinstance(p2, dict) else None
+                            if fc and (fc.get("name") and call_id.startswith(fc.get("name", ""))):
+                                fn_name = fc.get("name") or ""
+                                break
+                        if fn_name:
+                            break
+                out.append({
+                    "role": "user",
+                    "parts": [{
+                        "function_response": {
+                            "name": fn_name,
+                            "response": {"result": m.get("content") or ""},
+                        }
+                    }],
+                })
+                continue
+            # default: treat as user text
+            out.append({"role": "user", "parts": [{"text": m.get("content") or ""}]})
+        return out
+
+    def _to_gemini_tools(self, tools: list[dict]) -> list[dict]:
+        """Map OpenAI-style tool schemas to Gemini ``function_declarations``."""
+        declarations: list[dict] = []
+        for t in tools or []:
+            fn = t.get("function", t)
+            declarations.append({
+                "name": fn.get("name", ""),
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+            })
+        return [{"function_declarations": declarations}]
+
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float = 0.0,
+    ) -> ModelResponse:
+        from google.genai import types as _gtypes  # type: ignore[import-not-found]
+
+        config = _gtypes.GenerateContentConfig(
+            system_instruction=system or None,
+            temperature=temperature,
+            max_output_tokens=self.max_tokens,
+        )
+        if tools:
+            config.tools = self._to_gemini_tools(tools)
+
+        try:
+            resp = self._client.models.generate_content(
+                model=self.model,
+                contents=self._to_gemini_contents(messages),
+                config=config,
+            )
+        except Exception as exc:  # noqa: BLE001 - normalize any SDK error
+            raise ModelCallError(_describe_anthropic_error(exc, self.model)) from exc
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        finish_reason = "stop"
+
+        candidates = getattr(resp, "candidates", None) or []
+        if candidates:
+            first = candidates[0]
+            content = getattr(first, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            for part in parts or []:
+                text = getattr(part, "text", None)
+                if text:
+                    text_parts.append(text)
+                fc = getattr(part, "function_call", None)
+                if fc is not None:
+                    name = getattr(fc, "name", "") or ""
+                    args = getattr(fc, "args", None) or {}
+                    if not isinstance(args, dict):
+                        args = {}
+                    tool_calls.append(
+                        ToolCall(
+                            id=f"{name}_{len(tool_calls) + 1}",
+                            name=name,
+                            arguments=args,
+                        )
+                    )
+            finish_reason = getattr(first, "finish_reason", None) or "stop"
+
+        usage = None
+        u = getattr(resp, "usage_metadata", None)
+        if u is not None:
+            usage = {
+                "input_tokens": getattr(u, "prompt_token_count", None),
+                "output_tokens": getattr(u, "candidates_token_count", None),
+            }
+
+        return ModelResponse(
+            text="".join(text_parts) or None,
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            usage=usage,
+        )
+
+
 class MockAdapter(ModelAdapter):
     """Replays a fixed list of :class:`ModelResponse` objects, ignoring input.
 

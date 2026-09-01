@@ -14,6 +14,7 @@ from .classifier import classify, strategy_for
 from .loop import AgentLoop
 from .model_adapter import (
     AnthropicAdapter,
+    GeminiAdapter,
     MockAdapter,
     ModelAdapter,
     OpenAIAdapter,
@@ -39,6 +40,7 @@ __all__ = [
     "strategy_for",
     "ModelAdapter",
     "AnthropicAdapter",
+    "GeminiAdapter",
     "MockAdapter",
     "OpenAIAdapter",
     "ModelResponse",

@@ -21,3 +21,7 @@ mcp>=2.1,<3
 
 # Ignore-rule matching (.gitignore-style patterns)
 pathspec>=0.12
+
+# Google Gemini SDK (used by GeminiAdapter; native Gemini protocol).
+google-genai>=1.0,<2.0
+

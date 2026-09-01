@@ -21,9 +21,15 @@ try:
 except ImportError:  # pragma: no cover - exercised in sandbox
     _HAS_OPENAI = False
 
+try:
+    from google import genai as _genai  # noqa: F401
+    _HAS_GEMINI = True
+except ImportError:  # pragma: no cover - exercised in sandbox
+    _HAS_GEMINI = False
+
 from backend.config import Settings
 from backend.deps import build_model_adapter
-from agent import MockAdapter, OpenAIAdapter, AnthropicAdapter
+from agent import MockAdapter, OpenAIAdapter, AnthropicAdapter, GeminiAdapter
 from agent.model_adapter import ModelConfigError
 
 
@@ -82,3 +88,26 @@ def test_build_model_adapter_unknown_provider_still_errors() -> None:
 def test_build_model_adapter_mock_unchanged() -> None:
     s = Settings(model_provider="mock")
     assert isinstance(build_model_adapter(s), MockAdapter)
+
+def test_model_configured_gemini_lowercase() -> None:
+    s = Settings(model_provider="gemini", gemini_api_key="sk-test")
+    assert s.model_configured is True
+    assert s.model_provider_normalized == "gemini"
+
+
+def test_model_configured_gemini_uppercase() -> None:
+    s = Settings(model_provider="GEMINI", gemini_api_key="sk-test")
+    assert s.model_configured is True
+    assert s.model_provider_normalized == "gemini"
+
+
+def test_model_configured_gemini_without_key() -> None:
+    s = Settings(model_provider="gemini", gemini_api_key=None)
+    assert s.model_configured is False
+
+
+@pytest.mark.skipif(not _HAS_GEMINI, reason="google-genai package not installed")
+def test_build_model_adapter_gemini_uppercase() -> None:
+    s = Settings(model_provider="GEMINI", gemini_api_key="sk-test")
+    adapter = build_model_adapter(s)
+    assert isinstance(adapter, GeminiAdapter)

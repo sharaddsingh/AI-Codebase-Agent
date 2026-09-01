@@ -25,12 +25,13 @@ class Settings(BaseSettings):
     # -- model provider ---------------------------------------------------
     # "anthropic"  -> Anthropic Claude (Messages API). Requires ANTHROPIC_API_KEY.
     # "openai"     -> Any OpenAI-compatible chat-completions service
-    #                 (OpenAI proper, TaBiToken, OpenRouter, local llama.cpp
-    #                 with an OpenAI shim, vLLM, etc.). Requires OPENAI_API_KEY
-    #                 and optionally OPENAI_BASE_URL.
+    #                 (OpenAI proper, OpenRouter, local llama.cpp with an
+    #                 OpenAI shim, vLLM, etc.). Requires OPENAI_API_KEY and
+    #                 optionally OPENAI_BASE_URL.
+    # "gemini"     -> Google Gemini native API. Requires GEMINI_API_KEY.
     # "mock"       -> deterministic, no network. Used for tests and the
     #                 local "no API key" first-run path.
-    model_provider: str = "anthropic"        # "anthropic" | "openai" | "mock"
+    model_provider: str = "anthropic"        # "anthropic" | "openai" | "gemini" | "mock"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-5"
     anthropic_base_url: str | None = None
@@ -38,8 +39,12 @@ class Settings(BaseSettings):
     # OpenAI-compatible provider settings. Used when model_provider == "openai".
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
-    openai_base_url: str | None = None  # e.g. https://tabitoken.com/v1
+    openai_base_url: str | None = None  # e.g. https://openrouter.ai/api/v1
     openai_max_tokens: int = 4096
+    # Google Gemini native-protocol settings. Used when model_provider == "gemini".
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
+    gemini_max_tokens: int = 4096
     agent_temperature: float = 0.0
 
     # -- agent budgets ----------------------------------------------------
@@ -101,6 +106,8 @@ class Settings(BaseSettings):
             return bool(self.openai_api_key)
         if provider == "anthropic":
             return bool(self.anthropic_api_key)
+        if provider == "gemini":
+            return bool(self.gemini_api_key)
         return False
 
     def cors_origins_list(self) -> list[str]:

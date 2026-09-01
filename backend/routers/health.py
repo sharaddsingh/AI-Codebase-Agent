@@ -18,6 +18,8 @@ def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
         model_name = settings.openai_model
     elif provider == "anthropic":
         model_name = settings.anthropic_model
+    elif provider == "gemini":
+        model_name = settings.gemini_model
     elif provider == "mock":
         model_name = "mock"
     else:
