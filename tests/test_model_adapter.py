@@ -426,3 +426,41 @@ def test_sanitize_schema_for_gemini_handles_non_dict() -> None:
     assert _sanitize_schema_for_gemini(None) is None
     assert _sanitize_schema_for_gemini({"type": "object"}) == {"type": "object"}
 
+
+def test_assistant_message_round_trips_provider_meta() -> None:
+    from agent.loop import _assistant_tool_call_message
+    from agent.model_adapter import ModelResponse, ToolCall
+
+    resp = ModelResponse(
+        text=None,
+        tool_calls=[
+            ToolCall(
+                id="call_1",
+                name="list_files",
+                arguments={"path": "."},
+                provider_meta={"thought_signature": "sig-abc"},
+            )
+        ],
+    )
+    msg = _assistant_tool_call_message(resp)
+    assert msg["role"] == "assistant"
+    assert len(msg["tool_calls"]) == 1
+    tc = msg["tool_calls"][0]
+    # Stored under underscore-prefixed key so non-Gemini adapters ignore it.
+    assert tc["_thought_signature"] == "sig-abc"
+    assert tc["function"]["name"] == "list_files"
+
+
+def test_assistant_message_omits_metadata_when_none() -> None:
+    from agent.loop import _assistant_tool_call_message
+    from agent.model_adapter import ModelResponse, ToolCall
+
+    resp = ModelResponse(
+        text=None,
+        tool_calls=[ToolCall(id="call_1", name="noop", arguments={})],
+    )
+    msg = _assistant_tool_call_message(resp)
+    tc = msg["tool_calls"][0]
+    # No metadata -> no underscore-prefixed keys appear.
+    assert not any(k.startswith("_") for k in tc.keys())
+

@@ -38,6 +38,10 @@ class ToolCall:
     id: str
     name: str
     arguments: dict
+    # Provider-specific opaque metadata. Used by GeminiAdapter to round-trip
+    # ``thought_signature`` on thinking-model function_call parts. Other
+    # adapters ignore this field; treat it as a black-box dict.
+    provider_meta: dict | None = None
 
 
 @dataclass
@@ -557,7 +561,13 @@ class GeminiAdapter(ModelAdapter):
                         parsed = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
                     except (json.JSONDecodeError, TypeError):
                         parsed = {}
-                    parts.append({"function_call": {"name": name, "args": parsed or {}}})
+                    fc_part: dict = {"function_call": {"name": name, "args": parsed or {}}}
+                    # Round-trip Gemini thought_signature if the loop stored it
+                    # under ``_thought_signature`` on the tool_call dict.
+                    sig = tc.get("_thought_signature")
+                    if sig:
+                        fc_part["thought_signature"] = sig
+                    parts.append(fc_part)
                 out.append({"role": "model", "parts": parts or [{"text": ""}]})
                 continue
             if role == "tool":
@@ -654,11 +664,21 @@ class GeminiAdapter(ModelAdapter):
                     args = getattr(fc, "args", None) or {}
                     if not isinstance(args, dict):
                         args = {}
+                    # Thinking-enabled Gemini models emit a base64
+                    # ``thought_signature`` on each function_call part. It
+                    # MUST be passed back when we re-send the model turn, or
+                    # the next request returns 400 INVALID_ARGUMENT. We
+                    # carry it on the ToolCall so the loop can replay it.
+                    signature = getattr(part, "thought_signature", None)
+                    meta: dict | None = (
+                        {"thought_signature": signature} if signature else None
+                    )
                     tool_calls.append(
                         ToolCall(
                             id=f"{name}_{len(tool_calls) + 1}",
                             name=name,
                             arguments=args,
+                            provider_meta=meta,
                         )
                     )
             finish_reason = getattr(first, "finish_reason", None) or "stop"

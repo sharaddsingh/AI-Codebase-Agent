@@ -347,17 +347,24 @@ class AgentLoop:
 
 # -- message construction (internal OpenAI-style schema; adapters translate) --
 def _assistant_tool_call_message(resp: ModelResponse) -> dict:
+    tool_calls: list[dict] = []
+    for tc in resp.tool_calls:
+        entry: dict = {
+            "id": tc.id,
+            "type": "function",
+            "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+        }
+        # Round-trip opaque provider metadata. Gemini uses this to replay
+        # ``thought_signature`` on thinking-model function_call parts; other
+        # adapters ignore it.
+        if tc.provider_meta:
+            for k, v in tc.provider_meta.items():
+                entry["_" + k] = v
+        tool_calls.append(entry)
     return {
         "role": "assistant",
         "content": resp.text or "",
-        "tool_calls": [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-            }
-            for tc in resp.tool_calls
-        ],
+        "tool_calls": tool_calls,
     }
 
 
