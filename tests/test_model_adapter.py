@@ -386,3 +386,43 @@ def test_openai_adapter_parses_tool_calls() -> None:
     assert out.tool_calls and out.tool_calls[0].name == "search_code"
     assert out.tool_calls[0].arguments == {"query": "auth"}
     assert out.finish_reason == "tool_calls"
+
+
+def test_sanitize_schema_for_gemini_strips_additional_properties() -> None:
+    from agent.model_adapter import _sanitize_schema_for_gemini
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "title": "Path"},
+            "options": {
+                "type": "object",
+                "properties": {"limit": {"type": "integer"}},
+                "additionalProperties": False,
+                "title": "Options",
+            },
+        },
+        "required": ["path"],
+        "additionalProperties": False,
+        "$schema": "http://json-schema.org/draft-07/schema#",
+    }
+    clean = _sanitize_schema_for_gemini(schema)
+    # Gemini rejects these fields at every level of nesting.
+    assert "additionalProperties" not in clean
+    assert "additionalProperties" not in clean["properties"]["options"]
+    assert "title" not in clean["properties"]["options"]
+    assert "$schema" not in clean
+    # Real schema content survives.
+    assert set(clean["properties"].keys()) == {"path", "options"}
+    assert clean["required"] == ["path"]
+    assert clean["properties"]["path"]["type"] == "string"
+
+
+def test_sanitize_schema_for_gemini_handles_non_dict() -> None:
+    from agent.model_adapter import _sanitize_schema_for_gemini
+
+    # Defensive: a missing/None parameters dict should fall back to the empty
+    # object schema, not crash the request.
+    assert _sanitize_schema_for_gemini(None) is None
+    assert _sanitize_schema_for_gemini({"type": "object"}) == {"type": "object"}
+

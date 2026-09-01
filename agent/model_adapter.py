@@ -445,6 +445,44 @@ class OpenAIAdapter(ModelAdapter):
         )
 
 
+def _sanitize_schema_for_gemini(schema):
+    """Strip JSON Schema fields Gemini rejects from a tool parameter dict.
+
+    Gemini's ``function_declarations.parameters`` schema parser is stricter
+    than OpenAI's. In particular it rejects ``additionalProperties`` (which
+    our internal OpenAI-style tool schemas emit everywhere with
+    ``additionalProperties: false``). It also rejects a handful of other
+    JSON-Schema-but-not-Gemini fields. We strip them recursively so nested
+    object schemas are also clean.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    unsupported = {
+        "additionalProperties",
+        "$schema",
+        "title",
+        "definitions",
+        "$ref",
+        "$id",
+        "$comment",
+    }
+    out = {}
+    for key, value in schema.items():
+        if key in unsupported:
+            continue
+        if key == "properties" and isinstance(value, dict):
+            out[key] = {pk: _sanitize_schema_for_gemini(pv) for pk, pv in value.items()}
+        elif key == "items":
+            out[key] = _sanitize_schema_for_gemini(value)
+        elif isinstance(value, list):
+            out[key] = [_sanitize_schema_for_gemini(v) for v in value]
+        elif isinstance(value, dict):
+            out[key] = _sanitize_schema_for_gemini(value)
+        else:
+            out[key] = value
+    return out
+
+
 class GeminiAdapter(ModelAdapter):
     """Google Gemini (native protocol) provider.
 
@@ -552,14 +590,21 @@ class GeminiAdapter(ModelAdapter):
         return out
 
     def _to_gemini_tools(self, tools: list[dict]) -> list[dict]:
-        """Map OpenAI-style tool schemas to Gemini ``function_declarations``."""
+        """Map OpenAI-style tool schemas to Gemini ``function_declarations``.
+
+        Gemini rejects several JSON Schema fields our OpenAI adapter emits,
+        so every parameter dict is run through ``_sanitize_schema_for_gemini``
+        to drop ``additionalProperties`` and friends before being sent.
+        """
         declarations: list[dict] = []
         for t in tools or []:
             fn = t.get("function", t)
             declarations.append({
                 "name": fn.get("name", ""),
                 "description": fn.get("description", ""),
-                "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+                "parameters": _sanitize_schema_for_gemini(
+                    fn.get("parameters") or {"type": "object", "properties": {}}
+                ),
             })
         return [{"function_declarations": declarations}]
 
