@@ -13,13 +13,18 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
+    provider = settings.model_provider_normalized
+    if provider == "openai":
+        model_name = settings.openai_model
+    elif provider == "anthropic":
+        model_name = settings.anthropic_model
+    elif provider == "mock":
+        model_name = "mock"
+    else:
+        model_name = settings.model_provider
     return HealthResponse(
         model_provider=settings.model_provider,
         model_configured=settings.model_configured,  # boolean only; never the key
-        model=(
-            settings.anthropic_model
-            if settings.model_provider == "anthropic"
-            else settings.model_provider
-        ),
+        model=model_name,
         repositories=len(get_registry().list()),
     )

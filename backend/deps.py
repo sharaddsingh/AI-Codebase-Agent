@@ -65,8 +65,13 @@ def set_model_adapter(adapter: ModelAdapter | None) -> None:
 
 
 def build_model_adapter(settings: Settings) -> ModelAdapter:
-    """Construct the configured model adapter. May raise ModelConfigError."""
-    provider = settings.model_provider
+    """Construct the configured model adapter. May raise ModelConfigError.
+
+    The selection is based on the lowercased model_provider so that values like
+    `MODEL_PROVIDER=OPENAI` from Render/Vercel env dashboards still resolve
+    correctly.
+    """
+    provider = settings.model_provider_normalized
     if provider == "mock":
         return MockAdapter([])
     if provider == "openai":
@@ -88,7 +93,8 @@ def build_model_adapter(settings: Settings) -> ModelAdapter:
             max_tokens=settings.anthropic_max_tokens,
         )
     raise ModelConfigError(
-        f"Unknown MODEL_PROVIDER: {provider!r}. Expected one of: anthropic, openai, mock."
+        f"Unknown MODEL_PROVIDER: {settings.model_provider!r}. "
+        "Expected one of: anthropic, openai, mock."
     )
 
 

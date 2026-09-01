@@ -17,6 +17,11 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    @staticmethod
+    def _normalize_provider(value):
+        v = (value or "").strip().lower()
+        return v or "anthropic"
+
     # -- model provider ---------------------------------------------------
     # "anthropic"  -> Anthropic Claude (Messages API). Requires ANTHROPIC_API_KEY.
     # "openai"     -> Any OpenAI-compatible chat-completions service
@@ -82,11 +87,21 @@ class Settings(BaseSettings):
 
     # -- derived helpers --------------------------------------------------
     @property
+    def model_provider_normalized(self) -> str:
+        """Lowercased model_provider, regardless of how the env var was cased."""
+        return self._normalize_provider(self.model_provider)
+
+    @property
     def model_configured(self) -> bool:
         """True if the agent can actually talk to a model."""
-        if self.model_provider == "mock":
+        provider = self.model_provider_normalized
+        if provider == "mock":
             return True
-        return bool(self.anthropic_api_key)
+        if provider == "openai":
+            return bool(self.openai_api_key)
+        if provider == "anthropic":
+            return bool(self.anthropic_api_key)
+        return False
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
